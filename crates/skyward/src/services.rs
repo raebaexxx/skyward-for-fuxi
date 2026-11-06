@@ -223,6 +223,9 @@ fn command(s: &Service, who: &Credentials) -> Command {
     if !s.libraries.is_empty() {
         cmd.env("LD_LIBRARY_PATH", s.libraries.join(":"));
     }
+    if !s.preload.is_empty() {
+        cmd.env("LD_PRELOAD", s.preload.join(":"));
+    }
     let who = who.clone();
     // Only system calls run between the fork and the exec, on what was
     // worked out before it.

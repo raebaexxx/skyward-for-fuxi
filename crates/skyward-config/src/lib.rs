@@ -315,6 +315,10 @@ pub struct Service {
     /// Directories for LD_LIBRARY_PATH, searched in order.
     #[serde(default)]
     pub libraries: Vec<String>,
+    /// Libraries loaded before the program's own, by absolute path, for a
+    /// program built against a newer C++ runtime than the recovery's own.
+    #[serde(default)]
+    pub preload: Vec<String>,
     /// The program runs once, to its end, as a service of init's marked
     /// oneshot does: it is not started again, the programs after it start
     /// once it has ended, and it has to end well.
@@ -494,6 +498,15 @@ impl DeviceConfig {
             for name in &s.capabilities {
                 ensure!(capability(name).is_some(), "[[service]] {}: {name} is not a capability init knows", s.path);
             }
+            for library in &s.preload {
+                let path = Path::new(library);
+                let plain = path.components().all(|c| matches!(c, std::path::Component::RootDir | std::path::Component::Normal(_)));
+                ensure!(
+                    path.is_absolute() && plain && path.file_name().is_some(),
+                    "[[service]] {}: preload {library} is not an absolute path to a file",
+                    s.path
+                );
+            }
         }
         for folder in &cfg.backup.data_skipped {
             let path = Path::new(folder);
@@ -623,6 +636,15 @@ mod tests {
         for (value, runs) in [(Some("p"), true), (Some("q"), false), (None, false)] {
             assert_eq!(only.services[0].runs_on(&props(value)), runs, "with ro.sku {value:?}");
             assert!(always.services[0].runs_on(&props(value)));
+        }
+    }
+
+    #[test]
+    fn a_library_preloaded_before_a_program_is_an_absolute_path_to_a_file() {
+        let with = |library: &str| DeviceConfig::parse(&format!("[device]\ncodename = \"x\"\n[[service]]\npath = \"/vendor/bin/a\"\npreload = [\"{library}\"]\n"));
+        assert!(with("/vendor/lib64/libc++.so").is_ok());
+        for bad in ["lib64/libc++.so", "/", "/vendor/../lib64/libc++.so", ""] {
+            assert!(with(bad).is_err(), "{bad} is refused");
         }
     }
 
