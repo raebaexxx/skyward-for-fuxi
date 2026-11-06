@@ -711,6 +711,24 @@ mod tests {
     }
 
     #[test]
+    fn parses_fuxi() {
+        let cfg = DeviceConfig::parse(include_str!("../../../devices/fuxi.toml")).unwrap();
+        assert_eq!(cfg.device.codename, "fuxi");
+        assert_eq!(cfg.device.os_version_prop, "ro.mi.os.version.incremental");
+        let soc = cfg.device.soc.expect("fuxi names its SoC");
+        assert_eq!(soc.en, "Snapdragon® 8 Gen 2 Mobile Platform");
+        assert_eq!((cfg.display.width, cfg.display.height, cfg.display.density), (1080, 2400, 420));
+        assert_eq!(cfg.modules.load, ["fts_touch_spi"]);
+        let paths: Vec<&str> = cfg.services.iter().map(|s| s.path.as_str()).collect();
+        assert!(paths.contains(&"/vendor/bin/qseecomd"));
+        assert!(paths.contains(&"/vendor/bin/hw/android.hardware.security.keymint-service-qti"));
+        assert!(paths.contains(&"/vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti"));
+        let stock = cfg.stock.expect("a stock build to build on");
+        assert_eq!(stock.version, "OS3.0.309.0.WMCCNXM");
+        assert!(stock.package.ends_with(".zip") && stock.package.contains("/OS3.0.309.0.WMCCNXM/"));
+    }
+
+    #[test]
     fn parses_nuwa() {
         let cfg = DeviceConfig::parse(include_str!("../../../devices/nuwa.toml")).unwrap();
         assert_eq!(cfg.device.codename, "nuwa");
