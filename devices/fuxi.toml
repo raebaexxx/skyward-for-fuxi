@@ -27,8 +27,8 @@ load = ["fts_touch_spi"]
 # their highest clock and voltage even while idle, and the phone slowly
 # heats up. It runs before the touch programs, which need none of it.
 [[service]]
-path = "/vendor/bin/sh"
-args = ["/vendor/bin/init.kernel.post_boot.sh"]
+path = "/system/bin/sh"
+args = ["-c", "/vendor/bin/init.kernel.post_boot.sh || true"]
 libraries = ["/system/lib64", "/vendor/lib64"]
 oneshot = true
 user = "root"
@@ -49,22 +49,11 @@ libraries = ["/odm/lib64", "/system/lib64"]
 user = "system"
 groups = ["system", "uhid", "input"]
 
-# Stage the installed system's newer libraries into /kmlibs, so the
-# HyperOS 4 vendor programs link against them instead of the recovery's
-# older ones. Runs once, before any of them.
-[[service]]
-path = "/system/bin/sh"
-args = ["-c", "mkdir -p /kmlibs && cp /mnt/product/lib64/libc++.so /apex/com.android.runtime/lib64/bionic/libc.so /mnt/system/system/lib64/libbinder.so /mnt/system/system/lib64/libbinder_ndk.so /mnt/system/system/lib64/libutils.so /mnt/system/system/lib64/libcutils.so /mnt/system/system/lib64/libbase.so /mnt/system/system/lib64/liblog.so /mnt/system/system/lib64/libvndksupport.so /mnt/system/system/lib64/libdl_android.so /mnt/system/system/lib64/libapexsupport.so /vendor/lib64/libhardware.so /kmlibs/ 2>/dev/null; true"]
-oneshot = true
-user = "root"
-groups = ["root"]
-
 # The secure world reaches back into Android through the listeners this
 # daemon registers; without them the key service cannot use any key.
 [[service]]
-path = "/system/bin/sh"
-args = ["-c", "LD_PRELOAD=\"/kmlibs/libc++.so /kmlibs/libc.so /kmlibs/libdl_android.so /kmlibs/libvndksupport.so /kmlibs/libapexsupport.so\" LD_LIBRARY_PATH=\"/kmlibs:/vendor/lib64:/system/lib64\" exec /vendor/bin/qseecomd"]
-libraries = []
+path = "/vendor/bin/qseecomd"
+libraries = ["/system/lib64", "/vendor/lib64"]
 ready_property = "vendor.sys.listeners.registered"
 user = "root"
 groups = ["root", "drmrpc"]
@@ -72,9 +61,8 @@ groups = ["root", "drmrpc"]
 # The key service, the only thing that can use keys the phone wrapped in
 # hardware. Decryption of the data partition needs it.
 [[service]]
-path = "/system/bin/sh"
-args = ["-c", "LD_PRELOAD=\"/kmlibs/libc++.so /kmlibs/libc.so /kmlibs/libdl_android.so /kmlibs/libvndksupport.so /kmlibs/libapexsupport.so /kmlibs/libbinder.so /kmlibs/libbinder_ndk.so\" LD_LIBRARY_PATH=\"/kmlibs:/vendor/lib64:/system/lib64\" exec /vendor/bin/hw/android.hardware.security.keymint-service-qti"]
-libraries = []
+path = "/vendor/bin/hw/android.hardware.security.keymint-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
 ready_service = "android.hardware.security.keymint.IKeyMintDevice/default"
 user = "system"
 groups = ["system", "drmrpc"]
@@ -94,9 +82,8 @@ groups = ["system", "readproc"]
 # it is the only thing that can hand out the note the key service wants
 # before using a key a screen lock guards.
 [[service]]
-path = "/system/bin/sh"
-args = ["-c", "LD_PRELOAD=\"/kmlibs/libc++.so /kmlibs/libc.so /kmlibs/libdl_android.so /kmlibs/libvndksupport.so /kmlibs/libapexsupport.so /kmlibs/libbinder.so /kmlibs/libbinder_ndk.so\" LD_LIBRARY_PATH=\"/kmlibs:/vendor/lib64:/system/lib64\" exec /vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti"]
-libraries = []
+path = "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
 ready_hardware_service = "android.hardware.gatekeeper@1.0::IGatekeeper/default"
 user = "system"
 groups = ["system"]
