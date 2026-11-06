@@ -122,8 +122,11 @@ impl Backlight {
 /// scale. The 13 Ultra's panel gives both on a finer scale of its own that
 /// spans the same light as the backlight's range; the 17 Ultra's gives them
 /// on the backlight's own scale.
-const NORMAL_MAX: [(&str, &str); 2] =
-    [("mi,normal-max-brightness-clone", "mi,max-brightness-clone"), ("mi,max-brightness-normal", "qcom,mdss-dsi-bl-max-level")];
+const NORMAL_MAX: [(&str, &str); 3] = [
+    ("mi,normal-max-brightness-clone", "mi,max-brightness-clone"),
+    ("mi,max-brightness-normal", "qcom,mdss-dsi-bl-max-level"),
+    ("mi,mdss-dsi-fac-bl-max-level", "qcom,mdss-dsi-bl-max-level"),
+];
 
 /// The raw backlight level, out of `max`, at the panel's normal maximum.
 /// Above it the panel runs in high brightness mode, which the stock system
