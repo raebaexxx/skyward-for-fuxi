@@ -385,7 +385,12 @@ pub fn publish_descriptions(wanted: &[String], files: &[String]) -> Result<usize
         let was = crate::services::running(DIRECTORY_PROGRAM);
         skyward_sys::set_prop("ctl.restart", DIRECTORY_SERVICE).context("have the service directory start again")?;
         answering_again(was)?;
-        register_again(&registered)?;
+        // A service that does not come back leaves the ones after it free to
+        // start: the key service is not one of them yet, and the recovery is
+        // still useful without, say, the health service.
+        if let Err(e) = register_again(&registered) {
+            skyward_sys::kmsg(&format!("not every service registered again: {e:#}"))?;
+        }
     }
     Ok(copied)
 }
@@ -426,16 +431,37 @@ fn register_again(registered: &[(String, String)]) -> Result<()> {
         skyward_sys::set_prop("ctl.start", service).with_context(|| format!("have init start {service} again"))?;
     }
     let binder = skyward_binder::driver::Binder::open()?;
-    let until = Instant::now() + REGISTER_TIMEOUT;
+    let mut failures = Vec::new();
     for (name, service) in registered {
-        while skyward_binder::service::find(&binder, name)?.is_none() {
-            ensure!(Instant::now() < until, "{name} has not registered again since init started {service} again");
-            std::thread::sleep(Duration::from_millis(50));
+        let until = Instant::now() + REGISTER_TIMEOUT;
+        loop {
+            match skyward_binder::service::find(&binder, name) {
+                Ok(Some(_)) => {
+                    skyward_sys::kmsg(&format!("{name} registered again from {service}"))?;
+                    break;
+                }
+                Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(50)),
+                Ok(None) => {
+                    failures.push(format!("{name} has not registered again since init started {service} again"));
+                    break;
+                }
+                Err(e) => {
+                    failures.push(format!("{name} could not be looked up again: {e:#}"));
+                    break;
+                }
+            }
         }
-        skyward_sys::kmsg(&format!("{name} registered again from {service}"))?;
     }
+    ensure!(failures.is_empty(), "{}", failures.join("; "));
     Ok(())
 }
+
+/// The version of a description the recovery's own reader understands. A
+/// recovery built on an older system reads descriptions with an older
+/// libvintf, which understands manifest version 1.0 and drops the whole set
+/// over one file that says a newer version. The entries themselves are the
+/// same; only the version of the format around them differs.
+const RECOVERY_MANIFEST_VERSION: &str = "1.0";
 
 /// A description of what the running system offers, rather than of what
 /// the phone's own partitions carry. A recovery publishes a description
@@ -443,7 +469,34 @@ fn register_again(registered: &[(String, String)]) -> Result<()> {
 /// the two readers drops the whole set over one description that says it
 /// is the phone's.
 fn as_framework(text: &str) -> String {
-    text.replace("type=\"device\"", "type=\"framework\"").replace("type='device'", "type='framework'")
+    let text = text.replace("type=\"device\"", "type=\"framework\"").replace("type='device'", "type='framework'");
+    with_manifest_version(&text, RECOVERY_MANIFEST_VERSION)
+}
+
+/// The same description with the version of its `<manifest>` tag set to
+/// `version`, where it says another one. Only the tag around the entries is
+/// touched: the `<version>` of each entry is the version of its interface,
+/// which is the same in every manifest format.
+fn with_manifest_version(text: &str, version: &str) -> String {
+    let Some(start) = text.find("<manifest") else { return text.to_string() };
+    let Some(end) = text[start..].find('>').map(|end| start + end) else { return text.to_string() };
+    let tag = &text[start..end];
+    let Some(field) = tag.find("version=") else { return text.to_string() };
+    let value = start + field + "version=".len();
+    let Some(quote) = text[value..].chars().next().filter(|c| *c == '"' || *c == '\'') else {
+        return text.to_string();
+    };
+    let begin = value + quote.len_utf8();
+    let Some(length) = text[begin..end].find(quote) else { return text.to_string() };
+    let finish = begin + length;
+    if &text[begin..finish] == version {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len() + version.len());
+    out.push_str(&text[..begin]);
+    out.push_str(version);
+    out.push_str(&text[finish..]);
+    out
 }
 
 /// Say the same of the descriptions already there, which a recovery ships
@@ -490,5 +543,30 @@ fn answering_again(was: Option<u32>) -> Result<()> {
             anyhow::bail!("the service directory did not come back");
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_description_says_the_recovery_reads_it() {
+        let text = "<manifest version=\"9.0\" type=\"device\">\n    <hal format=\"aidl\">\n        <name>android.hardware.wifi.supplicant</name>\n        <version>5</version>\n        <fqname>ISupplicant/default</fqname>\n    </hal>\n</manifest>\n";
+        let said = as_framework(text);
+        assert!(said.starts_with("<manifest version=\"1.0\" type=\"framework\">"));
+        assert!(said.contains("<version>5</version>"));
+    }
+
+    #[test]
+    fn a_description_that_is_already_the_recovery_s_is_left_alone() {
+        let text = "<manifest version=\"1.0\" type=\"framework\">\n</manifest>\n";
+        assert_eq!(as_framework(text), text);
+    }
+
+    #[test]
+    fn a_description_with_one_quoted_version_is_read_as_the_recovery_knows_it() {
+        let text = "<manifest version='9.0' type='device'></manifest>";
+        assert_eq!(as_framework(text), "<manifest version='1.0' type='framework'></manifest>");
     }
 }
