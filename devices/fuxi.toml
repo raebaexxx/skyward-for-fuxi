@@ -52,8 +52,9 @@ groups = ["system", "uhid", "input"]
 # The secure world reaches back into Android through the listeners this
 # daemon registers; without them the key service cannot use any key.
 [[service]]
-path = "/vendor/bin/qseecomd"
-libraries = ["/system/lib64", "/vendor/lib64"]
+path = "/system/bin/sh"
+args = ["-c", "LD_PRELOAD=\"/mnt/product/lib64/libc++.so\" LD_LIBRARY_PATH=\"/system/lib64:/vendor/lib64\" exec /vendor/bin/qseecomd"]
+libraries = []
 ready_property = "vendor.sys.listeners.registered"
 user = "root"
 groups = ["root", "drmrpc"]
@@ -61,8 +62,9 @@ groups = ["root", "drmrpc"]
 # The key service, the only thing that can use keys the phone wrapped in
 # hardware. Decryption of the data partition needs it.
 [[service]]
-path = "/vendor/bin/hw/android.hardware.security.keymint-service-qti"
-libraries = ["/system/lib64", "/vendor/lib64"]
+path = "/system/bin/sh"
+args = ["-c", "LD_PRELOAD=\"/mnt/product/lib64/libc++.so /apex/com.android.runtime/lib64/bionic/libc.so /mnt/system/system/lib64/libdl_android.so /mnt/system/system/lib64/libvndksupport.so /mnt/system/system/lib64/libapexsupport.so /mnt/system/system/lib64/libbinder.so /mnt/system/system/lib64/libbinder_ndk.so\" LD_LIBRARY_PATH=\"/system/lib64:/vendor/lib64\" exec /vendor/bin/hw/android.hardware.security.keymint-service-qti"]
+libraries = []
 ready_service = "android.hardware.security.keymint.IKeyMintDevice/default"
 user = "system"
 groups = ["system", "drmrpc"]
