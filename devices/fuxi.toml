@@ -53,7 +53,7 @@ groups = ["system", "uhid", "input"]
 # daemon registers; without them the key service cannot use any key.
 [[service]]
 path = "/vendor/bin/qseecomd"
-libraries = ["/system/lib64", "/vendor/lib64"]
+libraries = ["/mnt/system/system/lib64", "/system/lib64", "/vendor/lib64"]
 ready_property = "vendor.sys.listeners.registered"
 user = "root"
 groups = ["root", "drmrpc"]
@@ -62,7 +62,7 @@ groups = ["root", "drmrpc"]
 # hardware. Decryption of the data partition needs it.
 [[service]]
 path = "/vendor/bin/hw/android.hardware.security.keymint-service-qti"
-libraries = ["/system/lib64", "/vendor/lib64"]
+libraries = ["/mnt/system/system/lib64", "/system/lib64", "/vendor/lib64"]
 ready_service = "android.hardware.security.keymint.IKeyMintDevice/default"
 user = "system"
 groups = ["system", "drmrpc"]
@@ -83,7 +83,7 @@ groups = ["system", "readproc"]
 # before using a key a screen lock guards.
 [[service]]
 path = "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti"
-libraries = ["/system/lib64", "/vendor/lib64"]
+libraries = ["/mnt/system/system/lib64", "/system/lib64", "/vendor/lib64"]
 ready_hardware_service = "android.hardware.gatekeeper@1.0::IGatekeeper/default"
 user = "system"
 groups = ["system"]
@@ -92,7 +92,7 @@ groups = ["system"]
 # switches it. It comes last: the phone is usable without it.
 [[service]]
 path = "/vendor/bin/hw/android.hardware.boot@1.2-service"
-libraries = ["/system/lib64", "/vendor/lib64"]
+libraries = ["/mnt/system/system/lib64", "/system/lib64", "/vendor/lib64"]
 ready_hardware_service = "android.hardware.boot@1.2::IBootControl/default"
 user = "root"
 groups = ["root"]
