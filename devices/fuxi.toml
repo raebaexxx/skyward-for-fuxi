@@ -18,54 +18,10 @@ sources = ["vendor_boot", "vendor_dlkm", "vendor"]
 # modules.load lists, as on the 13 Ultra.
 load = ["fts_touch_spi"]
 
-# What /odm/etc/init/vendor.xiaomi.hw.touchfeature@1.0-service.rc hands to
-# the system user on boot, which has the same chown and chmod lines as the
-# 13 Ultra's: the touch layer's own nodes, its switches and the driver's
-# files in /proc, which the touch programs below open as that user. These
-# are the 13 Ultra's, which were each seen made as the touch modules load
-# there, less those whose names this phone's xiaomi_touch.ko and
-# fts_touch_spi.ko do not carry.
-[[owners]]
-user = "system"
-group = "system"
-mode = 0o664
-paths = [
-    "/dev/xiaomi-touch",
-    "/dev/xiaomi-touch-knock",
-    "/sys/class/touch/touch_dev/gesture_single_tap_state",
-    "/sys/class/touch/touch_dev/fod_press_status",
-    "/proc/tp_selftest",
-    "/sys/class/touch/touch_dev/update_rawdata",
-    "/sys/class/touch/touch_dev/enable_touch_raw",
-    "/sys/class/touch/touch_dev/enable_touch_delta",
-    "/sys/class/touch/touch_dev/touch_thp_dump",
-    "/sys/class/touch/touch_dev/touch_thp_cmd",
-    "/sys/class/touch/touch_dev/suspend_state",
-    "/sys/class/touch/touch_dev/prox_sensor",
-    "/sys/class/touch/touch_dev/touch_thp_rx_num",
-    "/sys/class/touch/touch_dev/touch_thp_tx_num",
-    "/sys/class/touch/touch_dev/touch_thp_x_resolution",
-    "/sys/class/touch/touch_dev/touch_thp_y_resolution",
-    "/sys/class/touch/touch_dev/touch_thp_smooth",
-    "/sys/class/touch/touch_dev/touch_thp_noisefilter",
-    "/sys/class/touch/touch_dev/touch_thp_downthd",
-    "/sys/class/touch/touch_dev/touch_thp_upthd",
-    "/sys/class/touch/touch_dev/touch_thp_movethd",
-    "/sys/class/touch/touch_dev/touch_thp_islandthd",
-    "/sys/class/touch/touch_dev/touch_thp_cmd_data",
-    "/sys/class/touch/touch_dev/palm_sensor_data",
-    "/sys/class/touch/touch_dev/palm_sensor",
-    "/proc/tp_hal_version",
-    "/proc/tp_fw_version",
-    "/proc/tp_lockdown_info",
-    "/sys/class/touch/touch_dev/touch_active_status",
-    "/sys/class/touch/touch_dev/touch_finger_status",
-    "/sys/class/touch/touch_dev/touch_irq_no",
-    "/sys/class/touch/touch_dev/touch_sensor",
-    "/sys/class/touch/touch_dev/touch_thp_mem_notify",
-    "/sys/class/touch/touch_dev/touch_doze_analysis",
-    "/sys/class/touch/touch_dev/touch_ic_buffer",
-]
+# The touchscreen's nodes are handed to the system user by the phone's own
+# init scripts, which the recovery reads as it brings them up. crDroid's FTS
+# driver reports touches through the input device it registers itself, so
+# none of MIUI's touch processing nodes are needed here.
 
 # Each of the phone's own programs below runs as the user, in the groups
 # and with the capabilities its init script on the phone gives it.
@@ -85,20 +41,11 @@ oneshot = true
 user = "root"
 groups = ["root", "system", "wakelock", "graphics"]
 
-# The panel hands raw frames to the host, as on the 13 Ultra. touch_report
-# turns them into touches on the fts input device; touchsensor tells water,
-# gloves and screen protectors apart with the models in /odm/firmware.
-[[service]]
-path = "/odm/bin/touch_report"
-user = "system"
-groups = ["system", "uhid", "input"]
-capabilities = ["SYS_NICE"]
-
-[[service]]
-path = "/odm/bin/touchsensor"
-libraries = ["/odm/lib64", "/system/lib64"]
-user = "system"
-groups = ["system", "uhid", "input"]
+# The panel's touches are reported by fts_touch_spi.ko itself, through the
+# input device it registers, so a recovery reads them from /dev/input without
+# MIUI's touch_report and touchsensor: those programs are not in a crDroid
+# build of this phone, and starting one that is not there would stop the
+# recovery from bringing up anything else.
 
 # WLAN: the same converged node in the device tree as the 13 Ultra's, which
 # names no one chip. The phone's own modules.load lists qca_cld3_kiwi,
@@ -125,9 +72,10 @@ probe = "http://connect.rom.miui.com/generate_204"
 [update]
 server = "https://update.miui.com/updates/miotaV3.php"
 
-# The stock build the recovery is made on: the Chinese system's
-# OS3.0.309.0, whose full update package on the phone maker's own download
-# server holds the recovery partition the recovery is built on top of.
+# The stock build upstream's configuration names for this phone. It is an
+# Android 16 build: this fork's images are made on the Android 17 recovery
+# of crDroid 17.0 instead, because its vendor binaries are built against
+# Android 17's libc++, which an Android 16 recovery ramdisk cannot load.
 [stock]
 version = "OS3.0.309.0.WMCCNXM"
 package = "https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.309.0.WMCCNXM/fuxi-ota_full-OS3.0.309.0.WMCCNXM-user-16.0-4729900895.zip"
@@ -140,3 +88,95 @@ recovery = "f3749538243783db7393c3bc4cb72bb4ca6a046e0ceb3a6c779bf6fc4eef610e"
 click = 0
 resonance = "/sys/class/qcom-haptics/lra_frequency_hz"
 strength = { lightest = 0.5, strongest = 1.0 }
+
+# The secure stack that opens the data partition on a crDroid 17 build of
+# this phone: qseecomd, the key service, the older services' directory, the
+# credential service and the boot control. The vendor is the Android 16
+# Qualcomm one, so the key service is AIDL and the credential service is
+# HIDL 1.0, as on the 13 Pro.
+
+# The installed system_ext lies in /system_ext on a recovery ramdisk that
+# carries that folder and in /mnt/system_ext on one that does not. A link
+# of the first name to the second lets the service paths below be the same
+# on both.
+[[service]]
+path = "/system/bin/sh"
+args = ["-c", "test -e /mnt/system_ext || ln -s /system_ext /mnt/system_ext"]
+oneshot = true
+user = "root"
+groups = ["root"]
+
+# The secure world reaches back into Android through the listeners this
+# daemon registers; without them the key service cannot use any key.
+[[service]]
+path = "/vendor/bin/qseecomd"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_property = "vendor.sys.listeners.registered"
+user = "root"
+groups = ["root", "drmrpc"]
+
+# The key service, the only thing that can use keys the phone wrapped in
+# hardware. Decryption of the data partition needs it.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.security.keymint-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_service = "android.hardware.security.keymint.IKeyMintDevice/default"
+user = "system"
+groups = ["system", "drmrpc"]
+
+# The directory the older HIDL services register with. A recovery carries
+# none of it, so this is the installed system's own program against the
+# installed system's libraries; it reports ready by the property those
+# services wait on. The link above makes /mnt/system_ext reach the installed
+# system_ext whichever folder the recovery mounts it in.
+[[service]]
+path = "/mnt/system_ext/bin/hwservicemanager"
+libraries = ["/mnt/system/system/lib64/bootstrap", "/mnt/system/system/lib64", "/mnt/system_ext/lib64", "/system_ext/lib64"]
+ready_property = "hwservicemanager.ready"
+user = "system"
+groups = ["system", "readproc"]
+
+# The credential service: the secure world has it check a screen lock, and
+# it is the only thing that can hand out the note the key service wants
+# before using a key a screen lock guards.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti"
+libraries = ["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_hardware_service = "android.hardware.gatekeeper@1.0::IGatekeeper/default"
+user = "system"
+groups = ["system"]
+
+# The boot control, which says which slot the bootloader starts next and
+# switches it. It comes last: the phone is usable without it. crDroid's is
+# the newer kind, and the vendor's own program serves it.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.boot-service.qti"
+libraries = ["/system/lib64", "/vendor/lib64"]
+ready_service = "android.hardware.boot.IBootControl/default"
+user = "root"
+groups = ["root"]
+
+# The secure world's applets, among them the keymaster and gatekeeper ones,
+# are on the modem partition, which the phone's own boot mounts at
+# /vendor/firmware_mnt. A recovery does not, and without them qseecomd starts
+# but the key service cannot load what it asks the secure world for.
+[firmware]
+partition = "modem"
+
+# The partitions a baseband/EFS backup takes, and what of the data partition
+# a backup leaves out because the secure world keeps it in step with itself.
+[backup]
+efs = ["modemst1", "modemst2", "fsg", "fsc", "persist"]
+data_skipped = ["vendor/tzstorage", "vendor/qtee", "vendor/goodix", "vendor/fingerprint", "vendor/fpdata", "vendor/misc/mi_fp"]
+
+# Where the phone's own programs keep logs in the data partition.
+[wipe]
+logs = [
+    "/data/vendor/diag",
+    "/data/vendor/bsplog",
+    "/data/vendor/log",
+    "/data/vendor/ramdump",
+    "/data/vendor/ssrdump",
+    "/data/vendor/tombstones",
+    "/data/vendor/wlan_logs",
+]

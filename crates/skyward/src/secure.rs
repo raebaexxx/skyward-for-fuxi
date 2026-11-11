@@ -2,7 +2,7 @@
 //! recovery: the libraries their partitions were built against, and a
 //! service directory that knows the phone describes them.
 
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -100,10 +100,24 @@ pub fn prepare_hardware_directory(wanted: &[String]) -> Result<()> {
     // installed system's programs are loaded by the installed system's
     // loader rather than by the older one a recovery carries.
     let loader = Path::new(EARLY_LOADER);
-    let from = bundle(RUNTIME_BUNDLE)?
-        .map(|at| at.join(BUNDLE_LOADER))
-        .filter(|p| p.is_file())
-        .with_context(|| format!("the installed system carries no {RUNTIME_BUNDLE}, which holds the loader its own programs ask for"))?;
+    // The bundle the installed system keeps this loader in is preferred,
+    // since a loader and the libraries it carries are built together. A
+    // recovery whose kernel cannot point a loop device at that bundle uses
+    // its own loader instead: both are the same Android build here, and the
+    // installed system's own programs still find their libraries through
+    // the paths the configuration gives them.
+    let from = match bundle(RUNTIME_BUNDLE) {
+        Ok(Some(at)) => at.join(BUNDLE_LOADER),
+        Ok(None) => PathBuf::from("/system/bin/linker64"),
+        Err(e) => {
+            let _ = skyward_sys::kmsg(&format!("{RUNTIME_BUNDLE} not opened, using the recovery's loader: {e:#}"));
+            PathBuf::from("/system/bin/linker64")
+        }
+    };
+    let from = from
+        .is_file()
+        .then_some(from)
+        .with_context(|| format!("neither the installed system's {RUNTIME_BUNDLE} nor the recovery carries the loader its own programs ask for"))?;
     let dir = loader.parent().expect("the loader is in a directory");
     fs::create_dir_all(dir).with_context(|| format!("make {}", dir.display()))?;
     // Made under the recovery's own umask the folder is root's alone, and
@@ -438,13 +452,29 @@ fn register_again(registered: &[(String, String)]) -> Result<()> {
         skyward_sys::set_prop("ctl.start", service).with_context(|| format!("have init start {service} again"))?;
     }
     let binder = skyward_binder::driver::Binder::open()?;
-    let until = Instant::now() + REGISTER_TIMEOUT;
+    let mut missing = Vec::new();
     for (name, service) in registered {
-        while skyward_binder::service::find(&binder, name)?.is_none() {
-            ensure!(Instant::now() < until, "{name} has not registered again since init started {service} again");
+        let until = Instant::now() + REGISTER_TIMEOUT;
+        let mut came = false;
+        while Instant::now() < until {
+            if skyward_binder::service::find(&binder, name)?.is_some() {
+                came = true;
+                break;
+            }
             std::thread::sleep(Duration::from_millis(50));
         }
-        skyward_sys::kmsg(&format!("{name} registered again from {service}"))?;
+        if came {
+            skyward_sys::kmsg(&format!("{name} registered again from {service}"))?;
+        } else {
+            missing.push(format!("{name} (from {service})"));
+        }
+    }
+    // A service the recovery does not need may keep away after the
+    // directory starts again, as a recovery's own health service does.
+    // The descriptions are published all the same, and the services this
+    // recovery does need are started next.
+    if !missing.is_empty() {
+        skyward_sys::kmsg(&format!("{} services did not register again: {}", missing.len(), missing.join(", ")))?;
     }
     Ok(())
 }

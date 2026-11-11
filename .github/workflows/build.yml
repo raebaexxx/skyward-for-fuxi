@@ -1,19 +1,13 @@
-name: Build
+name: Build fuxi
 
-# Every push is linted and tested, and the recovery is built for every
-# device in devices/, each image zipped. A tag starting with v publishes
-# those zips as a release, each shown as the phone it is for. Run by hand,
-# it can build for one device alone.
+# Every push is linted and tested, and the recovery is built on the Android
+# 17 base kept in this repository's `base` release. A tag beginning
+# `fuxi-v` publishes the zip as a release. Run by hand for the image alone.
 on:
   push:
     branches: ["**"]
-    tags: ["v*"]
+    tags: ["fuxi-v*"]
   workflow_dispatch:
-    inputs:
-      device:
-        description: The codename of the one device to build for; every device when empty
-        required: false
-        default: ""
 
 permissions:
   contents: read
@@ -24,6 +18,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # The Android 17 recovery of crDroid 17.0 for fuxi, kept in the base release.
+  BASE: fuxi-a17-recovery.img
+  BASE_SHA256: 3fb4d898eaafaeb01d11e6fffdc59f1437b9760231512d899783fd0f0b3bed1a
 
 jobs:
   check:
@@ -67,32 +64,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  devices:
-    name: List the devices
-    runs-on: ubuntu-24.04
-    outputs:
-      devices: ${{ steps.list.outputs.devices }}
-    steps:
-      - uses: actions/checkout@v7
-      - id: list
-        env:
-          DEVICE: ${{ inputs.device }}
-        run: |
-          if [ -n "$DEVICE" ]; then
-            test -f "devices/$DEVICE.toml"
-            echo "devices=$(jq -nc --arg device "$DEVICE" '[$device]')" >> "$GITHUB_OUTPUT"
-          else
-            echo "devices=$(basename -s .toml devices/*.toml | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
-          fi
-
   recovery:
-    name: Recovery for ${{ matrix.device }}
-    needs: [tools, devices]
+    name: Build the recovery image
+    needs: [tools]
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        device: ${{ fromJSON(needs.devices.outputs.devices) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -101,35 +76,21 @@ jobs:
           path: tools
       - name: Make the tools runnable
         run: chmod +x tools/skyward tools/skyward-pack
-      - name: Read the stock build the recovery is made on
-        id: stock
-        run: tools/skyward-pack stock --config "devices/${{ matrix.device }}.toml" >> "$GITHUB_OUTPUT"
-      - name: Restore the stock recovery
-        id: cache
-        uses: actions/cache@v6
-        with:
-          path: stock/recovery.img
-          key: stock-recovery-${{ steps.stock.outputs.recovery }}
-      # Only what the recovery partition takes is read of the package,
-      # which is several gigabytes in all.
-      - name: Take the recovery partition out of the stock package
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: tools/skyward-pack stock --config "devices/${{ matrix.device }}.toml" --out stock/recovery.img
-      - name: Check the stock recovery
+      - name: Take the Android 17 base out of the base release
         env:
-          RECOVERY: ${{ steps.stock.outputs.recovery }}
-        run: echo "$RECOVERY  stock/recovery.img" | sha256sum --check
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p stock
+          gh release download base --pattern "$BASE" --dir stock
+          echo "$BASE_SHA256  stock/$BASE" | sha256sum --check
       - name: Pack the recovery
         id: pack
-        env:
-          DEVICE: ${{ matrix.device }}
-          STOCK: ${{ steps.stock.outputs.version }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then version="$GITHUB_REF_NAME"; else version="${GITHUB_SHA::7}"; fi
-          name="skyward-$version-$DEVICE-$STOCK"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version="${GITHUB_REF_NAME#fuxi-}"; else version="${GITHUB_SHA::7}"; fi
+          name="skyward-fuxi-$version"
           mkdir out
-          tools/skyward-pack recovery --stock stock/recovery.img --binary tools/skyward --system-init tools/system-init \
-            --config "devices/$DEVICE.toml" --font resources/fonts/MiSansVF.ttf --mono resources/fonts/KirkMono-Regular.ttf \
+          tools/skyward-pack recovery --stock "stock/$BASE" --binary tools/skyward --system-init tools/system-init \
+            --config devices/fuxi.toml --font resources/fonts/MiSansVF.ttf --mono resources/fonts/KirkMono-Regular.ttf \
             --mono-license resources/fonts/KirkMono-OFL.txt --out "out/$name.img"
           echo "name=$name" >> "$GITHUB_OUTPUT"
       # The image is the whole partition, flashed as it is, and most of it
@@ -139,7 +100,6 @@ jobs:
         env:
           NAME: ${{ steps.pack.outputs.name }}
         run: zip -9 "$NAME.zip" "$NAME.img"
-      # The artifact takes the zip's name.
       - uses: actions/upload-artifact@v7
         with:
           path: out/${{ steps.pack.outputs.name }}.zip
@@ -155,32 +115,37 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The devices' configurations say which phone each zip is for.
-      - uses: actions/checkout@v7
-      # Each artifact is a zip, which the download keeps whole under its
-      # name, as it is handed out.
       - uses: actions/download-artifact@v8
         with:
           pattern: skyward-*
           path: images
           merge-multiple: true
           skip-decompress: true
-      - name: Sum the zips
+      - name: Sum the zip
         working-directory: images
-        run: sha256sum -- *.zip > SHA256SUMS
-      # Each zip shows on the release as the phone it is for, its model and
-      # then its codename, which is how people look for theirs; a device
-      # whose zip is missing stops the release.
+        run: sha256sum -- *.zip > SHA256SUMS.txt
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          zips=()
-          for config in devices/*.toml; do
-            device=$(basename "$config" .toml)
-            model=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["device"]["model"])' "$config")
-            zip=$(ls images/skyward-"$GITHUB_REF_NAME"-"$device"-*.zip)
-            zips+=("$zip#$model ($device)")
-          done
-          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes "${zips[@]}" images/SHA256SUMS
+          name=$(basename images/*.zip .zip)
+          cat > notes.md <<NOTES
+          # Skyward for fuxi · Xiaomi 13
+
+          Android 17 data decryption with the screen lock, verified on crDroid 17.0.
+
+          ## Flash
+
+          \`\`\`
+          adb reboot bootloader
+          fastboot flash recovery ${name}.img
+          fastboot reboot recovery
+          \`\`\`
+
+          The image is built on the Android 17 recovery kept in this
+          repository's \`base\` release. Back up your current recovery first if
+          you want to return to it.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" --title "Skyward for fuxi · $GITHUB_REF_NAME" \
+            --notes-file notes.md "images/${name}.zip#Xiaomi 13 (fuxi)" images/SHA256SUMS.txt

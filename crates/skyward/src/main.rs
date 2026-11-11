@@ -213,13 +213,17 @@ enum Cmd {
 
 fn main() -> Result<()> {
     // init starts the recovery service by path with no arguments.
-    let started_as = std::env::args_os().next().unwrap_or_default();
+    let args: Vec<_> = std::env::args_os().collect();
+    let started_as = args.first().cloned().unwrap_or_default();
     let name = Path::new(&started_as).file_name().unwrap_or_default();
-    if name == "recovery" {
+    // init starts the recovery service by path with no arguments. Given
+    // arguments, it is taken as the program it is invoked as, as the links
+    // beside it are, so that the commands can be run on the phone too.
+    if name == "recovery" && args.len() == 1 {
         return recovery();
     }
     // Install scripts run the commands linked to this binary by their names.
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let args: Vec<_> = args.into_iter().skip(1).collect();
     if let Some(code) = skyward_install::commands::run(name, &args) {
         std::process::exit(code);
     }
@@ -563,14 +567,26 @@ fn hand_over(owners: &[skyward_config::Owners]) -> Result<usize> {
     let known = ueventd::accounts(&ueventd::PASSWD_FILES.iter().chain(&ueventd::GROUP_FILES).copied().collect::<Vec<_>>());
     let id = |name: &str| ueventd::account(&known, name).with_context(|| format!("the phone has no account named {name}"));
     let mut handed = 0;
+    let mut missing = 0;
     for run in owners {
         let (uid, gid) = (id(&run.user)?, id(&run.group)?);
         for path in &run.paths {
+            // A build of the phone's own software may not make every file
+            // the configuration was written against, such as one driver's
+            // gesture node. What is not there is passed over: the programs
+            // that need the rest would otherwise never start.
+            if std::fs::metadata(path).is_err() {
+                missing += 1;
+                continue;
+            }
             std::os::unix::fs::chown(path, Some(uid), Some(gid)).with_context(|| format!("give {path} to {}:{}", run.user, run.group))?;
             std::fs::set_permissions(path, std::fs::Permissions::from_mode(run.mode))
                 .with_context(|| format!("give {path} the mode {:o}", run.mode))?;
             handed += 1;
         }
+    }
+    if missing > 0 {
+        skyward_sys::kmsg(&format!("{missing} files the configuration names are not here"))?;
     }
     Ok(handed)
 }
@@ -698,7 +714,12 @@ fn recovery() -> Result<()> {
         if skyward_sys::prop("sys.usb.state").is_some_and(|s| s != "adb") {
             skyward_sys::usb::set("none", std::time::Duration::from_secs(5))?;
         }
-        skyward_sys::set_prop("sys.usb.config", "adb")?;
+        // adb is wanted before the pages, so that what goes wrong later can
+        // be read from a computer. A port that will not take it is told in
+        // the kernel log, and the pages come up all the same.
+        if let Err(e) = skyward_sys::usb::set("adb", std::time::Duration::from_secs(5)) {
+            skyward_sys::kmsg(&format!("adb did not take the port: {e:#}"))?;
+        }
         let misc = bcb::misc();
         let message = bcb::read(&misc)?;
         let request = message.request();

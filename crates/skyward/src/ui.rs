@@ -1305,11 +1305,16 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
         worker.send(systems::Task::Resume);
     }
     // The port came up with adb alone; at rest it offers file transfer
-    // beside it.
+    // beside it. A port that will not take file transfer goes back to adb
+    // alone, so that a computer is not shut out of the recovery.
     if transfer.is_some() && !fastboot && !sideloading {
         if let Err(e) = skyward_sys::usb::switch(skyward_sys::usb::resting(), USB_TIMEOUT) {
             skyward_sys::kmsg(&format!("the port did not take file transfer: {e:#}"))?;
             app.report(&format!("{e:#}"), monotonic_ms());
+            skyward_sys::usb::set_mtp(false);
+            if let Err(back) = skyward_sys::usb::set(skyward_sys::usb::resting(), USB_TIMEOUT) {
+                skyward_sys::kmsg(&format!("the port did not go back to adb alone: {back:#}"))?;
+            }
         }
     }
     // Once the work the system asked for is done, the page shows it for a

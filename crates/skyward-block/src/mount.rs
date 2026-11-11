@@ -88,7 +88,12 @@ mod sys {
             }
             let e = os_error();
             match e.raw_os_error() {
-                Some(libc::EINVAL | libc::ENODEV) => refused.push(format!("{fs}: {e}")),
+                // A filesystem that is not the one the image holds is
+                // refused with one of these; the next is tried. An image
+                // read as the wrong filesystem may also fail with EIO
+                // before it is far enough in to be refused, so that counts
+                // as a refusal too.
+                Some(libc::EINVAL | libc::ENODEV | libc::EIO) => refused.push(format!("{fs}: {e}")),
                 _ => {
                     return Err(e).with_context(|| format!("mount {} on {} as {fs}", device.display(), target.display()))
                 }

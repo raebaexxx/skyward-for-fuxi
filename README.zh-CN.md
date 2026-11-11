@@ -1,12 +1,12 @@
 ![Skyward Recovery](assets/hero.jpg)
 
-# Skyward for nuwa
+# Skyward for fuxi
 
 [English](README.md) | 简体中文
 
-Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只服务一台手机：**小米 13 Pro**（代号 `nuwa`）。上游项目支持的其他机型见 [kirklin/skyward](https://github.com/kirklin/skyward)。
+Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只服务一台手机：**小米 13**（代号 `fuxi`）。上游项目支持的其他机型见 [kirklin/skyward](https://github.com/kirklin/skyward)。
 
-![在小米 13 Pro 上运行的 Skyward：关于、主页、设置和文件管理](docs/overview.webp)
+![在小米 13 上运行的 Skyward：关于、主页、设置和文件管理](docs/overview.webp)
 
 <p align="center">
   <img src="assets/home.png" width="30%" alt="首页">
@@ -32,17 +32,19 @@ Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只
 
 | 机型 | 代号 | 测试的系统版本 |
 | --- | --- | --- |
-| 小米 13 Pro | `nuwa` | OS4.0.24.0.XEOCNXM（Android 17） |
+| 小米 13 | `fuxi` | crDroid 17.0（Android 17，2026-11-11 构建） |
 
-镜像基于原厂 OS3.0.311.0.WMBCNXM 的 recovery 构建，即 `devices/nuwa.toml` 中指定的版本。
+已在这台手机上使用 PIN 锁屏验证解密：data 分区成功解密，机主的凭据加密文件可以打开，内部存储可以读取。
+
+镜像基于 crDroid 17.0 的 Android 17 recovery 构建。该 recovery 保存在本仓库 `base` release 的 `fuxi-a17-recovery.img` 资产中。Android 16 原厂 recovery 不能用于 crDroid 17：它的 libc++ 无法加载 key 服务所用的 Android 17 vendor 程序。
 
 ## 安装
 
-Skyward 需要已解锁的 bootloader。从本仓库的 [Releases](https://github.com/pubglite55/skyward-for-nuwa/releases) 下载 zip（由 `nuwa-v*` 标签发布），文件名形如 `skyward-nuwa-<版本>-<原厂版本>`。使用 `SHA256SUMS.txt` 核对并解压之后，在手机处于 fastboot 模式的时候，把其中的镜像刷入当前运行槽位的 recovery 分区：
+Skyward 需要已解锁的 bootloader。从本仓库的 [Releases](https://github.com/raebaexxx/skyward-for-fuxi/releases) 下载 zip（由 `fuxi-v*` 标签发布），文件名形如 `skyward-fuxi-<版本>`。使用 `SHA256SUMS.txt` 核对并解压之后，在手机处于 fastboot 模式的时候，把其中的镜像刷入 recovery 分区：
 
 ```sh
-unzip skyward-nuwa-v1.3-OS3.0.311.0.WMBCNXM.zip
-fastboot flash recovery skyward-nuwa-v1.3-OS3.0.311.0.WMBCNXM.img
+unzip skyward-fuxi-v1.0.zip
+fastboot flash recovery skyward-fuxi-v1.0.img
 fastboot reboot recovery
 ```
 
@@ -54,30 +56,34 @@ Skyward 中的 adb 是 root shell，手机上无需授权：手机处于 recover
 
 ## 构建
 
-Skyward 使用 `rust-toolchain.toml` 指定的稳定版 Rust 和它的 `aarch64-linux-android` 目标、Android NDK r29 和 [cargo-ndk](https://github.com/bbqsrc/cargo-ndk) 构建。recovery 服务针对手机构建，打包工具针对电脑构建：
+Skyward 使用 `rust-toolchain.toml` 指定的稳定版 Rust 和它的 `aarch64-linux-android` 目标、Android NDK r29 和 [cargo-ndk](https://github.com/bbqsrc/cargo-ndk) 构建。recovery 服务针对手机构建，第二个系统的首个程序以静态方式构建，打包工具针对电脑构建：
 
 ```sh
 cargo ndk -t arm64-v8a --platform 30 build --release -p skyward
+RUSTFLAGS="-C target-feature=+crt-static" \
+  cargo ndk -t arm64-v8a --platform 30 build --release \
+  -p skyward-system-init --target-dir target/system-init
 cargo build --release -p skyward-pack
 ```
 
-打包工具从小米服务器上这个版本的完整更新包中取出原厂 recovery 分区，只读取这个分区所在的部分，并且按照设备配置文件核对 SHA-256：
+底座是手机上安装的 crDroid 构建的 Android 17 recovery。本仓库保存了测试所用的那个：
 
 ```sh
-target/release/skyward-pack stock --config devices/nuwa.toml --out target/stock/nuwa/recovery.img
+gh release download base --pattern fuxi-a17-recovery.img --dir stock
 ```
 
-然后在它的基础上构建镜像：
+或者从本机 crDroid 的 `out/target/product/fuxi/` 构建目录中取出 `recovery.img`。然后在此基础上构建镜像：
 
 ```sh
 target/release/skyward-pack recovery \
-  --stock target/stock/nuwa/recovery.img \
+  --stock stock/fuxi-a17-recovery.img \
   --binary target/aarch64-linux-android/release/skyward \
-  --config devices/nuwa.toml \
+  --system-init target/system-init/aarch64-linux-android/release/system-init \
+  --config devices/fuxi.toml \
   --font resources/fonts/MiSansVF.ttf \
   --mono resources/fonts/KirkMono-Regular.ttf \
   --mono-license resources/fonts/KirkMono-OFL.txt \
-  --out target/skyward-nuwa.img
+  --out target/skyward-fuxi.img
 ```
 
 测试和代码检查在电脑上运行；只在手机上运行的代码按照手机目标检查：
@@ -85,7 +91,7 @@ target/release/skyward-pack recovery \
 ```sh
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo ndk -t arm64-v8a --platform 30 clippy -p skyward -p skyward-install -- -D warnings
+cargo ndk -t arm64-v8a --platform 30 clippy -p skyward -p skyward-install -p skyward-systems -p skyward-system-init -- -D warnings
 ```
 
 `skyward-preview` 无需手机，在电脑上把页面绘制成 PNG 文件：每个页面完整绘制成长截图的样子，覆盖它可能处于的各种状态，另外还有触摸和动画过程中某些时刻的屏幕。`--lang` 按照地区代码选择语言，例如 `en` 或者 `zh-TW`：

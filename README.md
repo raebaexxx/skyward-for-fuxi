@@ -1,14 +1,14 @@
 ![Skyward Recovery](assets/hero.jpg)
 
-# Skyward for nuwa
+# Skyward for fuxi
 
 English | [简体中文](README.zh-CN.md)
 
 Skyward is a recovery written in Rust, from scratch. This fork is dedicated to
-one phone: the **Xiaomi 13 Pro** (codename `nuwa`). For the other devices the
+one phone: the **Xiaomi 13** (codename `fuxi`). For the other devices the
 upstream project supports, see [kirklin/skyward](https://github.com/kirklin/skyward).
 
-![Skyward running on the Xiaomi 13 Pro: About, home, settings and the file manager](docs/overview.webp)
+![Skyward running on the Xiaomi 13](docs/overview.webp)
 
 <p align="center">
   <img src="assets/home.png" width="30%" alt="Home">
@@ -18,7 +18,7 @@ upstream project supports, see [kirklin/skyward](https://github.com/kirklin/skyw
 
 ## Features
 
-- Decrypt the data partition
+- Decrypt the data partition with the screen lock
 - Install zips, system update packages and partition images, from internal storage, a USB drive or adb sideload
 - Online system updates
 - Backup and restore
@@ -34,33 +34,39 @@ upstream project supports, see [kirklin/skyward](https://github.com/kirklin/skyw
 
 | Device | Codename | Tested system version |
 | --- | --- | --- |
-| Xiaomi 13 Pro | `nuwa` | OS4.0.24.0.XEOCNXM (Android 17) |
+| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-11 build) |
 
-The recovery image is built on the stock recovery of OS3.0.311.0.WMBCNXM, the
-build `devices/nuwa.toml` names.
+Decryption was verified on this phone with a PIN screen lock: the data
+partition is decrypted, the owner's credential-based files open, and internal
+storage is readable.
+
+The image is built on the Android 17 recovery of crDroid 17.0 for fuxi. That
+recovery is kept as the `fuxi-a17-recovery.img` asset of this repository's
+`base` release. An Android 16 stock recovery cannot be used for a crDroid 17
+system: its libc++ cannot load the Android 17 vendor binaries the key service
+is built from.
 
 ## Installing
 
 Skyward needs an unlocked bootloader. Download the zip from this repository's
-[Releases](https://github.com/pubglite55/skyward-for-nuwa/releases), which are
-published from tags named `nuwa-v*`. Each file is named
-`skyward-nuwa-<version>-<stock build>`. Check it against `SHA256SUMS.txt`,
-unzip it, and flash the image inside to the recovery partition of the slot the
-phone runs from, with the phone in fastboot mode:
+[Releases](https://github.com/raebaexxx/skyward-for-fuxi/releases), which are
+published from tags named `fuxi-v*`. Check it against `SHA256SUMS.txt`, unzip
+it, and flash the image inside to the recovery partition with the phone in
+fastboot mode:
 
 ```sh
-unzip skyward-nuwa-v1.3-OS3.0.311.0.WMBCNXM.zip
-fastboot flash recovery skyward-nuwa-v1.3-OS3.0.311.0.WMBCNXM.img
+unzip skyward-fuxi-v1.0.zip
+fastboot flash recovery skyward-fuxi-v1.0.img
 fastboot reboot recovery
 ```
 
-Afterwards a newer image, unzipped, installs from Skyward's own Install page. With
-**Flash Skyward again** on, a system update or zip that writes over the recovery
-partitions gets Skyward back in them.
+Afterwards a newer image, unzipped, installs from Skyward's own Install page.
+With **Flash Skyward again** on, a system update or zip that writes over the
+recovery partition gets Skyward back in it.
 
 Without a system in super, Skyward still starts, with its screen and keys, adb,
-`adb sideload` and fastbootd, enough to install one. Touch, WLAN and decryption run
-from the installed system and come back with it.
+`adb sideload` and fastbootd, enough to install one. Touch, WLAN and decryption
+run from the installed system and come back with it.
 
 adb in Skyward is a root shell that needs no authorization on the phone: anyone
 with the phone and a cable can reach its storage while it is in recovery.
@@ -69,33 +75,38 @@ with the phone and a cable can reach its storage while it is in recovery.
 
 Skyward builds with the stable Rust that `rust-toolchain.toml` names, with its
 `aarch64-linux-android` target, the Android NDK r29 and
-[cargo-ndk](https://github.com/bbqsrc/cargo-ndk). The recovery service is built for
-the phone, and the packer for the computer:
+[cargo-ndk](https://github.com/bbqsrc/cargo-ndk). The recovery service is built
+for the phone, its second system's first program statically, and the packer for
+the computer:
 
 ```sh
 cargo ndk -t arm64-v8a --platform 30 build --release -p skyward
+RUSTFLAGS="-C target-feature=+crt-static" \
+  cargo ndk -t arm64-v8a --platform 30 build --release \
+  -p skyward-system-init --target-dir target/system-init
 cargo build --release -p skyward-pack
 ```
 
-The packer takes the stock recovery partition out of the build's full update
-package on Xiaomi's server, reading only the part of the package the partition is
-in, and checks its SHA-256 against the device file:
+The base is the Android 17 recovery of the crDroid build installed on the
+phone. This repository keeps the one the images here were tested on:
 
 ```sh
-target/release/skyward-pack stock --config devices/nuwa.toml --out target/stock/nuwa/recovery.img
+gh release download base --pattern fuxi-a17-recovery.img --dir stock
 ```
 
-Then it builds the image on top of it:
+Or take the `recovery.img` out of a local crDroid
+`out/target/product/fuxi/` build. Then build the image on top of it:
 
 ```sh
 target/release/skyward-pack recovery \
-  --stock target/stock/nuwa/recovery.img \
+  --stock stock/fuxi-a17-recovery.img \
   --binary target/aarch64-linux-android/release/skyward \
-  --config devices/nuwa.toml \
+  --system-init target/system-init/aarch64-linux-android/release/system-init \
+  --config devices/fuxi.toml \
   --font resources/fonts/MiSansVF.ttf \
   --mono resources/fonts/KirkMono-Regular.ttf \
   --mono-license resources/fonts/KirkMono-OFL.txt \
-  --out target/skyward-nuwa.img
+  --out target/skyward-fuxi.img
 ```
 
 Tests and lints run on the computer; what runs only on the phone is linted for it:
@@ -103,7 +114,7 @@ Tests and lints run on the computer; what runs only on the phone is linted for i
 ```sh
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo ndk -t arm64-v8a --platform 30 clippy -p skyward -p skyward-install -- -D warnings
+cargo ndk -t arm64-v8a --platform 30 clippy -p skyward -p skyward-install -p skyward-systems -p skyward-system-init -- -D warnings
 ```
 
 `skyward-preview` draws the pages on the computer, as PNG files, without a phone:
