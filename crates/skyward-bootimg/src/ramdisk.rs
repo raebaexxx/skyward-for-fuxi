@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use cpio::{NewcBuilder, NewcReader};
 use std::ffi::{CString, OsStr};
 use std::fs;
@@ -49,11 +49,17 @@ pub struct Ramdisk {
 }
 
 impl Ramdisk {
-    /// Unpack an LZ4 (legacy framing) compressed newc archive, as Android
-    /// boot images carry.
+    /// Unpack an LZ4 compressed newc archive, as Android boot images carry:
+    /// the legacy framing the kernel's initramfs unpacker reads, or the
+    /// standard frame format.
     pub fn decode(compressed: &[u8]) -> Result<Self> {
-        let mut cpio = Vec::new();
-        lz4_flex::frame::FrameDecoder::new(compressed).read_to_end(&mut cpio).context("lz4 decode")?;
+        let cpio = if compressed.starts_with(&LZ4_LEGACY_MAGIC.to_le_bytes()) {
+            lz4_legacy_decode(compressed)?
+        } else {
+            let mut cpio = Vec::new();
+            lz4_flex::frame::FrameDecoder::new(compressed).read_to_end(&mut cpio).context("lz4 decode")?;
+            cpio
+        };
         let mut entries = Vec::new();
         let mut rest = Cursor::new(cpio.as_slice());
         loop {
@@ -275,6 +281,52 @@ pub fn lz4_legacy(input: &[u8]) -> Vec<u8> {
     out
 }
 
+/// What [`lz4_legacy`] packed, read back. A stream may be more than one
+/// packed stream one after another, as the bootloader joins the vendor's
+/// ramdisk and the recovery's; each starts with the magic number again.
+/// The standard frame decoder refuses a block larger than its own limit,
+/// which the reference tool writes for data it cannot compress much, so
+/// each block is decoded into a buffer that grows until it fits.
+pub fn lz4_legacy_decode(input: &[u8]) -> Result<Vec<u8>> {
+    ensure!(
+        input.len() >= 4 && u32::from_le_bytes(input[..4].try_into().expect("four bytes")) == LZ4_LEGACY_MAGIC,
+        "a legacy LZ4 stream starts with its magic number"
+    );
+    let mut out = Vec::new();
+    let mut at = 4;
+    let mut buf = vec![0u8; LZ4_LEGACY_BLOCK];
+    while at + 4 <= input.len() {
+        let word = u32::from_le_bytes(input[at..at + 4].try_into().expect("four bytes"));
+        if word == LZ4_LEGACY_MAGIC {
+            at += 4;
+            continue;
+        }
+        let len = word as usize;
+        at += 4;
+        if len == 0 {
+            continue;
+        }
+        ensure!(at + len <= input.len(), "a legacy LZ4 block runs past the ramdisk");
+        loop {
+            match lz4_flex::block::decompress_into(&input[at..at + len], &mut buf) {
+                Ok(n) => {
+                    out.extend_from_slice(&buf[..n]);
+                    break;
+                }
+                // A block the reference tool wrote may unpack to more than
+                // the kernel's own 8 MiB block. Grow until it fits.
+                Err(_) if buf.len() < (64 << 20) => {
+                    let more = buf.len() * 2;
+                    buf.resize(more, 0);
+                }
+                Err(e) => return Err(e).context("decode a legacy LZ4 block"),
+            }
+        }
+        at += len;
+    }
+    Ok(out)
+}
+
 fn lz4_tool(input: &[u8]) -> Result<Vec<u8>> {
     let mut child = Command::new("lz4")
         .args(["-l", "-12", "--favor-decSpeed", "-c"])
@@ -344,6 +396,24 @@ mod tests {
         let mut back = Vec::new();
         lz4_flex::frame::FrameDecoder::new(packed.as_slice()).read_to_end(&mut back).unwrap();
         assert_eq!(back, input);
+    }
+
+    #[test]
+    fn a_reference_stream_whose_block_unpacks_past_the_frame_decoders_limit_is_read() {
+        // Nothing for LZ4 to find, so the block is larger than the standard
+        // frame decoder takes.
+        let mut x = 0x1234_5678u32;
+        let input: Vec<u8> = (0..(6u32 << 20))
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x as u8
+            })
+            .collect();
+        let packed = lz4_legacy(&input);
+        assert!(packed.len() > (4 << 20), "a block the frame decoder refuses");
+        assert_eq!(lz4_legacy_decode(&packed).unwrap(), input);
     }
 
     #[test]

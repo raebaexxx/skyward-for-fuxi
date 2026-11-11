@@ -64,7 +64,7 @@ firmware = [
 ]
 interface = "wlan0"
 supplicant = "/vendor/bin/hw/wpa_supplicant"
-libraries = ["/vendor/lib64", "/system/lib64"]
+libraries = ["/vendor/lib64", "/system/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
 service = "android.hardware.wifi.supplicant.ISupplicant/default"
 probe = "http://connect.rom.miui.com/generate_204"
 
@@ -95,17 +95,6 @@ strength = { lightest = 0.5, strongest = 1.0 }
 # Qualcomm one, so the key service is AIDL and the credential service is
 # HIDL 1.0, as on the 13 Pro.
 
-# The installed system_ext lies in /system_ext on a recovery ramdisk that
-# carries that folder and in /mnt/system_ext on one that does not. A link
-# of the first name to the second lets the service paths below be the same
-# on both.
-[[service]]
-path = "/system/bin/sh"
-args = ["-c", "test -e /mnt/system_ext || ln -s /system_ext /mnt/system_ext"]
-oneshot = true
-user = "root"
-groups = ["root"]
-
 # The secure world reaches back into Android through the listeners this
 # daemon registers; without them the key service cannot use any key.
 [[service]]
@@ -127,11 +116,10 @@ groups = ["system", "drmrpc"]
 # The directory the older HIDL services register with. A recovery carries
 # none of it, so this is the installed system's own program against the
 # installed system's libraries; it reports ready by the property those
-# services wait on. The link above makes /mnt/system_ext reach the installed
-# system_ext whichever folder the recovery mounts it in.
+# services wait on.
 [[service]]
-path = "/mnt/system_ext/bin/hwservicemanager"
-libraries = ["/mnt/system/system/lib64/bootstrap", "/mnt/system/system/lib64", "/mnt/system_ext/lib64", "/system_ext/lib64"]
+path = "/system_ext/bin/hwservicemanager"
+libraries = ["/mnt/system/system/lib64/bootstrap", "/mnt/system/system/lib64", "/system_ext/lib64"]
 ready_property = "hwservicemanager.ready"
 user = "system"
 groups = ["system", "readproc"]

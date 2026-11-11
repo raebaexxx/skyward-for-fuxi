@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use skyward_vab::Slot;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 const BOOT_MAGIC: &[u8] = b"ANDROID!";
@@ -34,6 +35,12 @@ const FOOTER_MAGIC: &[u8] = b"AVBf";
 const FOOTER_LEN: u64 = 64;
 
 const CHUNK: usize = 1 << 20;
+
+/// The block device's read-only switch, as `<linux/fs.h>` numbers it: a
+/// partition an install has written is left read-only until the phone
+/// starts again, and writing it back needs the switch turned off first.
+const BLKROSET: u32 = 0x125d;
+const BLKROGET: u32 = 0x125e;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageKind {
@@ -116,17 +123,22 @@ fn holds(packed: impl Read, wanted: impl Fn(&str) -> bool) -> Result<bool> {
 /// What `take` makes of the first entry of a packed ramdisk whose name
 /// `wanted` picks, read from its start; none when no entry's name is
 /// picked.
-fn find<T>(packed: impl Read, wanted: impl Fn(&str) -> bool, take: impl FnOnce(&mut dyn Read) -> Result<T>) -> Result<Option<T>> {
-    let mut packed = BufReader::new(packed);
-    let start = packed.fill_buf().context("read the ramdisk's first bytes")?;
-    let mut rest: Box<dyn Read + '_> = if start.starts_with(LZ4_LEGACY) || start.starts_with(LZ4_FRAME) {
-        Box::new(lz4_flex::frame::FrameDecoder::new(packed))
+fn find<T>(mut packed: impl Read, wanted: impl Fn(&str) -> bool, take: impl FnOnce(&mut dyn Read) -> Result<T>) -> Result<Option<T>> {
+    let mut all = Vec::new();
+    packed.read_to_end(&mut all).context("read the ramdisk")?;
+    let start = &all[..all.len().min(8)];
+    let mut rest: Box<dyn Read> = if start.starts_with(LZ4_LEGACY) {
+        // The standard frame decoder refuses a legacy block the reference
+        // tool wrote past its own limit, as a recovery packed by TWRP has.
+        Box::new(Cursor::new(skyward_bootimg::lz4_legacy_decode(&all).context("read the ramdisk")?))
+    } else if start.starts_with(LZ4_FRAME) {
+        Box::new(lz4_flex::frame::FrameDecoder::new(Cursor::new(all)))
     } else if start.starts_with(GZIP) {
-        Box::new(flate2::bufread::MultiGzDecoder::new(packed))
+        Box::new(flate2::read::MultiGzDecoder::new(Cursor::new(all)))
     } else if start.starts_with(NEWC) {
-        Box::new(packed)
+        Box::new(Cursor::new(all))
     } else {
-        bail!("a ramdisk packed in an unknown way, starting {:02x?}", &start[..start.len().min(4)]);
+        bail!("a ramdisk packed in an unknown way, starting {start:02x?}");
     };
     loop {
         let mut entry = cpio::NewcReader::new(rest).context("read a ramdisk entry")?;
@@ -204,13 +216,18 @@ pub fn flash<R: Read + Seek>(image: &mut R, len: u64, devices: &[PathBuf], progr
     ensure!(!devices.is_empty(), "no partition to write");
     let mut outs = Vec::with_capacity(devices.len());
     for path in devices {
-        let mut f = OpenOptions::new().read(true).write(true).open(path).with_context(|| format!("open {}", path.display()))?;
+        let f = OpenOptions::new().read(true).write(true).open(path).with_context(|| format!("open {}", path.display()))?;
+        let was_read_only = read_only(&f)?;
+        if was_read_only {
+            set_read_only(&f, false).with_context(|| format!("open {} for writing", path.display()))?;
+        }
+        let mut f = f;
         let size = f.seek(SeekFrom::End(0)).with_context(|| format!("find the size of {}", path.display()))?;
         f.seek(SeekFrom::Start(0)).with_context(|| format!("rewind {}", path.display()))?;
-        outs.push((path, f, size));
+        outs.push((path, f, size, was_read_only));
     }
     let size = outs[0].2;
-    ensure!(outs.iter().all(|(_, _, s)| *s == size), "the partition differs in size between slots");
+    ensure!(outs.iter().all(|(_, _, s, _)| *s == size), "the partition differs in size between slots");
     ensure!(len <= size, "the image is {len} bytes, more than the {size} its partition holds");
 
     let mut footer = [0u8; FOOTER_LEN as usize];
@@ -233,7 +250,7 @@ pub fn flash<R: Read + Seek>(image: &mut R, len: u64, devices: &[PathBuf], progr
         let n = (end - at).min(CHUNK as u64) as usize;
         source.read_exact(&mut buf[..n]).context("read the image")?;
         written.update(&buf[..n]);
-        for (path, f, _) in &mut outs {
+        for (path, f, _, _) in &mut outs {
             f.write_all(&buf[..n]).with_context(|| format!("write {}", path.display()))?;
             done += n as u64;
             progress(done, total);
@@ -241,11 +258,11 @@ pub fn flash<R: Read + Seek>(image: &mut R, len: u64, devices: &[PathBuf], progr
         at += n as u64;
     }
     let written = written.finalize();
-    for (path, f, _) in &mut outs {
+    for (path, f, _, _) in &mut outs {
         f.sync_all().with_context(|| format!("flush {}", path.display()))?;
         drop_cache(f).with_context(|| format!("drop the cached pages of {}", path.display()))?;
     }
-    for (path, f, _) in &mut outs {
+    for (path, f, _, _) in &mut outs {
         f.seek(SeekFrom::Start(0)).with_context(|| format!("rewind {}", path.display()))?;
         let mut back = Sha256::new();
         let mut left = end;
@@ -258,6 +275,37 @@ pub fn flash<R: Read + Seek>(image: &mut R, len: u64, devices: &[PathBuf], progr
             progress(done, total);
         }
         ensure!(back.finalize() == written, "{} reads back different from what was written", path.display());
+    }
+    // The partition was read-only when it was found; leave it so, as the
+    // install that wrote it did.
+    for (path, f, _, was_read_only) in &mut outs {
+        if *was_read_only {
+            set_read_only(f, true).with_context(|| format!("close {} to writing again", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether the block device behind `f` is read-only. A file that is no
+/// block device says no.
+fn read_only(f: &std::fs::File) -> Result<bool> {
+    let mut ro: libc::c_int = 0;
+    if unsafe { libc::ioctl(f.as_raw_fd(), BLKROGET as libc::Ioctl, &mut ro as *mut libc::c_int) } != 0 {
+        let e = io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::ENOTTY) {
+            return Ok(false);
+        }
+        return Err(e).context("ask whether the partition is read-only");
+    }
+    Ok(ro != 0)
+}
+
+/// Turn the block device's read-only switch, which an install leaves on
+/// for the slot it wrote.
+fn set_read_only(f: &std::fs::File, read_only: bool) -> Result<()> {
+    let value: libc::c_int = read_only as libc::c_int;
+    if unsafe { libc::ioctl(f.as_raw_fd(), BLKROSET as libc::Ioctl, &value as *const libc::c_int) } != 0 {
+        return Err(io::Error::last_os_error()).context("turn the partition's read-only switch");
     }
     Ok(())
 }
