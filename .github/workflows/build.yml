@@ -147,5 +147,9 @@ jobs:
           repository's \`base\` release. Back up your current recovery first if
           you want to return to it.
           NOTES
-          gh release create "$GITHUB_REF_NAME" --title "Skyward for fuxi · $GITHUB_REF_NAME" \
-            --notes-file notes.md "images/${name}.zip#Xiaomi 13 (fuxi)" images/SHA256SUMS.txt
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --clobber --repo "$GITHUB_REPOSITORY" "images/${name}.zip" images/SHA256SUMS.txt
+          else
+            gh release create "$GITHUB_REF_NAME" --title "Skyward for fuxi · $GITHUB_REF_NAME" \
+              --notes-file notes.md "images/${name}.zip#Xiaomi 13 (fuxi)" images/SHA256SUMS.txt
+          fi
