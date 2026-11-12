@@ -239,7 +239,7 @@ pub struct Keeper {
     /// left alone.
     holds: Option<Option<Settings>>,
     /// The settings the pages showed when last looked at, and since when;
-    /// with no time once writing them failed, until they change.
+    /// a failed write starts the wait again rather than waiting for a change.
     standing: Option<(Settings, Option<u64>)>,
 }
 
@@ -277,10 +277,11 @@ impl Keeper {
         self.standing = None;
     }
 
-    /// Writing the settings failed: they are written again once they change.
-    pub fn failed(&mut self) {
+    /// Writing the settings failed: they are written again after the same
+    /// wait, so a storage that was busy or briefly read-only is retried.
+    pub fn failed(&mut self, now: u64) {
         if let Some((_, since)) = &mut self.standing {
-            *since = None;
+            *since = Some(now);
         }
     }
 
@@ -390,16 +391,18 @@ mod tests {
     }
 
     #[test]
-    fn settings_that_failed_to_be_written_wait_for_the_next_change() {
+    fn settings_that_failed_to_be_written_are_tried_again_after_the_wait() {
         let mut keeper = Keeper::new(&Kept::Nothing);
         let dark = Settings { dark: true, ..Settings::default() };
         keeper.due(dark.clone(), 0);
         assert_eq!(keeper.due(dark.clone(), 2_000), Some(dark.clone()), "an empty file takes what the pages show");
-        keeper.failed();
-        assert_eq!(keeper.due(dark.clone(), 60_000), None, "not tried at every look");
+        keeper.failed(2_000);
+        assert_eq!(keeper.due(dark.clone(), 3_500), None, "not tried at every look");
+        assert_eq!(keeper.due(dark.clone(), 4_000), Some(dark.clone()), "tried again once the wait is over");
+        keeper.written(dark.clone());
         let light = Settings::default();
-        keeper.due(light.clone(), 61_000);
-        assert_eq!(keeper.due(light.clone(), 63_000), Some(light));
+        keeper.due(light.clone(), 5_000);
+        assert_eq!(keeper.due(light.clone(), 7_000), Some(light), "a later change still waits for its own moment");
     }
 
     #[test]

@@ -675,7 +675,12 @@ fn mount_firmware(partition: &str) -> Result<()> {
 /// made under a build it does not know, and refuses them. The recovery's
 /// property files leave these out so that they can be set here instead.
 #[cfg(target_os = "android")]
-const BUILD_VERSION: [&str; 3] = ["ro.build.version.release", "ro.build.version.security_patch", "ro.vendor.build.security_patch"];
+const BUILD_VERSION: [&str; 4] = [
+    "ro.build.version.release",
+    "ro.build.version.security_patch",
+    "ro.vendor.build.security_patch",
+    "ro.vendor.build.version.incremental",
+];
 
 /// Set each of [`BUILD_VERSION`] to the installed system's value. An earlier
 /// run of the recovery service may have set it already, and init sets such
@@ -689,7 +694,10 @@ fn adopt_installed_version(props: &std::collections::HashMap<String, String>, cf
     // not the installed system's, that goes in — the vendor build's patch
     // level included, which is the level a key is measured against.
     for name in BUILD_VERSION {
-        let installed = props.get(name).with_context(|| format!("the installed system says no {name}"))?;
+        let Some(installed) = props.get(name) else {
+            skyward_sys::kmsg(&format!("the installed system says no {name}; it is left as it is"))?;
+            continue;
+        };
         let (value, named) = cfg.spoken_for(name, installed);
         if skyward_sys::prop(name).as_deref() != Some(value) {
             skyward_sys::set_prop(name, value)?;

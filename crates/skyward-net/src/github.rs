@@ -44,7 +44,15 @@ impl Build {
     /// short-lived address, where GitHub's API gave one, then the release's
     /// link on github.com, which some networks do not reach.
     pub fn sources(&self, located: Option<String>) -> Vec<String> {
-        located.into_iter().chain([self.link.clone()]).collect()
+        // The API's own address first: it is the one GitHub hands out for the
+        // file, on the CDN that usually answers fastest. Then the release's
+        // link on github.com itself, which some networks do not reach. Then
+        // the same link behind gh-proxy.com, which keeps a download going
+        // where the main site stalls; it is last so a working main site is
+        // never sent through it. The zip is checked against GitHub's SHA-256
+        // whichever source sends it.
+        let mirror = format!("https://gh-proxy.com/{}", self.link);
+        located.into_iter().chain([self.link.clone(), mirror]).collect()
     }
 }
 
@@ -196,35 +204,6 @@ mod tests {
         assert_eq!(newest(ANSWERED_013, "nezha", "0.1.2").unwrap().build.unwrap().size, 43145196);
     }
 
-    /// What GitHub answers of this fork's newest release, the v1.5 that is
-    /// out now, with the parts that do not matter here left out.
-    const ANSWERED_NUWA_15: &str = r#"{"tag_name":"nuwa-v1.5","assets":[{"url":"https://api.github.com/repos/pubglite55/skyward-for-nuwa/releases/assets/1","name":"SHA256SUMS.txt","size":108,"digest":null,"browser_download_url":"https://github.com/pubglite55/skyward-for-nuwa/releases/download/nuwa-v1.5/SHA256SUMS.txt"},{"url":"https://api.github.com/repos/pubglite55/skyward-for-nuwa/releases/assets/2","name":"skyward-nuwa-v1.5-OS3.0.312.0.WMBCNXM.zip","size":43348321,"digest":"sha256:85f67fb4a699492398e8fe69a76f0388de39338a44f8e6ed078bfef1f4d56b0f","browser_download_url":"https://github.com/pubglite55/skyward-for-nuwa/releases/download/nuwa-v1.5/skyward-nuwa-v1.5-OS3.0.312.0.WMBCNXM.zip"}]}"#;
-
-    /// This fork's tags carry the phone's name in front, and its zips are
-    /// named with that tag rather than with the codename after it.
-    #[test]
-    fn this_forks_release_is_read_by_its_own_tag_and_name() {
-        let n = newest(ANSWERED_NUWA_15, "nuwa", "1.4").unwrap();
-        assert_eq!(n.version, "1.5", "the version is what follows nuwa-v");
-        assert!(n.newer);
-        let build = n.build.expect("the release holds this phone's zip");
-        assert_eq!(build.name, "skyward-nuwa-v1.5-OS3.0.312.0.WMBCNXM.zip");
-        assert_eq!(build.sha256, "85f67fb4a699492398e8fe69a76f0388de39338a44f8e6ed078bfef1f4d56b0f");
-        assert_eq!(build.size, 43348321);
-    }
-
-    #[test]
-    fn a_build_of_the_newest_release_is_not_newer_than_itself() {
-        assert!(!newest(ANSWERED_NUWA_15, "nuwa", "1.5").unwrap().newer);
-        assert!(!newest(ANSWERED_NUWA_15, "nuwa", "1.10").unwrap().newer, "1.10 comes after 1.5");
-        assert!(newest(ANSWERED_NUWA_15, "nuwa", "1.4").unwrap().newer);
-    }
-
-    #[test]
-    fn another_phones_build_is_not_taken_from_this_forks_release() {
-        assert_eq!(newest(ANSWERED_NUWA_15, "ishtar", "1.0").unwrap().build, None);
-    }
-
     /// What GitHub answers of fuxi's newest release, whose zip carries the
     /// tag and no stock build.
     const ANSWERED_FUXI_14: &str = r#"{"tag_name":"fuxi-v1.4","assets":[{"url":"https://api.github.com/repos/raebaexxx/skyward-for-fuxi/releases/assets/1","name":"SHA256SUMS.txt","size":108,"digest":null,"browser_download_url":"https://github.com/raebaexxx/skyward-for-fuxi/releases/download/fuxi-v1.4/SHA256SUMS.txt"},{"url":"https://api.github.com/repos/raebaexxx/skyward-for-fuxi/releases/assets/2","name":"skyward-fuxi-v1.4.zip","size":43348321,"digest":"sha256:85f67fb4a699492398e8fe69a76f0388de39338a44f8e6ed078bfef1f4d56b0f","browser_download_url":"https://github.com/raebaexxx/skyward-for-fuxi/releases/download/fuxi-v1.4/skyward-fuxi-v1.4.zip"}]}"#;
@@ -237,15 +216,26 @@ mod tests {
         let build = n.build.expect("the release holds this phone's zip");
         assert_eq!(build.name, "skyward-fuxi-v1.4.zip");
         assert!(!newest(ANSWERED_FUXI_14, "fuxi", "1.4").unwrap().newer, "a build of the release itself");
-        assert_eq!(newest(ANSWERED_FUXI_14, "nuwa", "1.0").unwrap().build, None, "another phone is not handed this zip");
+        assert_eq!(newest(ANSWERED_FUXI_14, "nezha", "1.0").unwrap().build, None, "another phone is not handed this zip");
+    }
+
+    #[test]
+    fn a_build_of_the_newest_release_is_not_newer_than_itself() {
+        assert!(!newest(ANSWERED_FUXI_14, "fuxi", "1.4").unwrap().newer);
+        assert!(!newest(ANSWERED_FUXI_14, "fuxi", "1.10").unwrap().newer, "1.10 comes after 1.4");
+        assert!(newest(ANSWERED_FUXI_14, "fuxi", "1.3").unwrap().newer);
     }
 
     #[test]
     fn a_zip_is_downloaded_from_where_github_sends_it_then_from_its_link() {
         let build = newest(ANSWERED_013, "ishtar", "0.1.2").unwrap().build.unwrap();
         let link = "https://github.com/kirklin/skyward/releases/download/v0.1.3/skyward-v0.1.3-ishtar-OS3.0.308.0.WMACNXM.zip";
-        assert_eq!(build.sources(Some("https://release-assets.githubusercontent.com/a?sig=1".into())), ["https://release-assets.githubusercontent.com/a?sig=1", link]);
-        assert_eq!(build.sources(None), [link], "where GitHub's API gave no address");
+        let mirror = "https://gh-proxy.com/https://github.com/kirklin/skyward/releases/download/v0.1.3/skyward-v0.1.3-ishtar-OS3.0.308.0.WMACNXM.zip";
+        assert_eq!(
+            build.sources(Some("https://release-assets.githubusercontent.com/a?sig=1".into())),
+            ["https://release-assets.githubusercontent.com/a?sig=1", link, mirror]
+        );
+        assert_eq!(build.sources(None), [link, mirror], "where GitHub's API gave no address");
     }
 
     /// A server on this computer that answers one request with `answer`,

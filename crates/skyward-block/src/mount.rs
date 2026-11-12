@@ -265,6 +265,15 @@ mod sys {
             fs::remove_dir(PARK).with_context(|| format!("remove {PARK}"))?;
         }
         for p in &parked.privatized {
+            // `under_parked` may have unmounted the path after `park` made
+            // it private as the parent of nested mounts. Remounting a path
+            // that is no longer a mount point returns EINVAL, so there is
+            // nothing to put back.
+            match is_mount_point(p) {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(_) => continue,
+            }
             remount(p, libc::MS_SHARED, "shared")?;
         }
         Ok(())

@@ -243,6 +243,36 @@ struct Records {
     mtime: Option<(i64, u32)>,
 }
 
+/// Whether `rel` names something inside the archive's folder: not empty, and
+/// every part of it a plain name.
+fn safe_rel(rel: &Path) -> Result<()> {
+    ensure!(!rel.as_os_str().is_empty(), "the archive names an empty path");
+    ensure!(
+        rel.components().all(|c| matches!(c, Component::Normal(_))),
+        "the archive names {} outside its folder",
+        rel.display()
+    );
+    Ok(())
+}
+
+/// Refuse to write through a link the archive made earlier: every folder
+/// above `rel` must be a real folder, not a symbolic link.
+fn check_parents(root: &Path, rel: &Path) -> Result<()> {
+    let Some(parent) = rel.parent() else { return Ok(()) };
+    let mut path = root.to_path_buf();
+    for part in parent.components() {
+        let Component::Normal(name) = part else { bail!("the archive names {} outside its folder", rel.display()) };
+        path.push(name);
+        match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() => bail!("the archive writes through the link {}", path.display()),
+            Ok(_) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| format!("look at {}", path.display())),
+        }
+    }
+    Ok(())
+}
+
 /// Make the files of `root` what the archive from `input` holds: each entry
 /// as it was archived, with all it had beyond its contents, a folder that
 /// is there already kept as it is; then take away what the archive does
@@ -260,7 +290,8 @@ pub fn unpack(input: impl Read, root: &Path, skipped: &Skipped, cancel: &AtomicB
         }
         let mut entry = entry.context("read the archive")?;
         let rel = entry.path().context("read the archive")?.into_owned();
-        ensure!(rel.components().all(|c| matches!(c, Component::Normal(_))), "the archive names {} outside its folder", rel.display());
+        safe_rel(&rel)?;
+        check_parents(root, &rel)?;
         if skipped.covers(&rel) || unpacked.unmade.iter().any(|u| rel.starts_with(u)) {
             continue;
         }
@@ -325,6 +356,8 @@ pub fn unpack(input: impl Read, root: &Path, skipped: &Skipped, cancel: &AtomicB
                 }
                 EntryType::Link => {
                     let first = entry.link_name().context("read what it is another name of")?.context("it names no file")?.into_owned();
+                    safe_rel(&first)?;
+                    check_parents(root, &first)?;
                     remove_any(&path)?;
                     fs::hard_link(root.join(first), &path).context("make it")?;
                 }
@@ -731,6 +764,42 @@ mod tests {
             assert_eq!(held(&was), held(&now), "{rel} keeps its label and all else beyond its contents");
             assert!(held(&now).iter().any(|(k, _)| k == "SCHILY.xattr.security.selinux"), "{rel} has a label");
         }
+        fs::remove_dir_all(&at).unwrap();
+    }
+
+    #[test]
+    fn an_archive_does_not_write_through_a_link_it_made() {
+        let at = scratch("link-through");
+        let root = at.join("root");
+        fs::create_dir_all(&root).unwrap();
+        let outside = at.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let me = fs::metadata(&at).unwrap();
+        let mut bytes = Vec::new();
+        {
+            let mut b = Builder::new(&mut bytes);
+            let mut header = Header::new_gnu();
+            header.set_entry_type(EntryType::Symlink);
+            header.set_size(0);
+            header.set_mode(0o777);
+            header.set_uid(u64::from(me.uid()));
+            header.set_gid(u64::from(me.gid()));
+            header.set_mtime(0);
+            b.append_link(&mut header, "link", &outside).unwrap();
+            let mut header = Header::new_gnu();
+            header.set_entry_type(EntryType::Regular);
+            header.set_size(3);
+            header.set_mode(0o644);
+            header.set_uid(u64::from(me.uid()));
+            header.set_gid(u64::from(me.gid()));
+            header.set_mtime(0);
+            b.append_data(&mut header, "link/file", io::Cursor::new(b"bad")).unwrap();
+            b.finish().unwrap();
+        }
+        let err = unpack(io::Cursor::new(bytes), &root, &Skipped::new(&[]), &AtomicBool::new(false), &mut |_| {})
+            .expect_err("a file below a link is not written");
+        assert!(format!("{err:#}").contains("writes through the link"), "{err:#}");
+        assert!(!outside.join("file").exists());
         fs::remove_dir_all(&at).unwrap();
     }
 

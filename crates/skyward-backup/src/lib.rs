@@ -20,6 +20,9 @@ pub const FOLDER: &str = "Skyward/backups";
 /// The layout of a backup this recovery writes and reads.
 pub const FORMAT: u32 = 1;
 
+/// The most a manifest can take; a real one is a few kilobytes.
+const MANIFEST_MAX: u64 = 1 << 20;
+
 /// What a backup can hold, in the order the backup page lists it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -74,6 +77,9 @@ impl Manifest {
     /// The manifest in the backup's `folder`.
     pub fn read(folder: &Path) -> Result<Manifest> {
         let path = folder.join(MANIFEST);
+        let meta = std::fs::symlink_metadata(&path).with_context(|| format!("read {}", path.display()))?;
+        ensure!(!meta.file_type().is_symlink(), "{} is a link, not a manifest", path.display());
+        ensure!(meta.len() <= MANIFEST_MAX, "{} is {} bytes, larger than a manifest can be", path.display(), meta.len());
         let text = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
         let manifest: Manifest = toml::from_str(&text).with_context(|| format!("read {}", path.display()))?;
         ensure!(manifest.format == FORMAT, "{} is in layout {}, which this recovery does not read", path.display(), manifest.format);
@@ -96,7 +102,7 @@ impl Manifest {
 
     /// The bytes its files take.
     pub fn size(&self) -> u64 {
-        self.items.iter().map(|i| i.stored.stored).sum()
+        self.items.iter().fold(0, |sum, i| sum.saturating_add(i.stored.stored))
     }
 }
 
@@ -112,10 +118,10 @@ mod tests {
         let stored = |name: &str, size| Stored { files: vec![format!("{name}.000")], size, stored: size / 2, compressed: true, sha256: "ab".repeat(32) };
         let m = Manifest {
             format: FORMAT,
-            device: "ishtar".into(),
+            device: "fuxi".into(),
             made: 1_792_561_872,
             slot: "_b".into(),
-            system: Some("OS3.0.305.0.WMACNXM".into()),
+            system: Some("OS3.0.309.0.WMCCNXM".into()),
             data_key: Some("00112233445566778899aabbccddeeff".into()),
             items: vec![
                 Item { part: Part::Boot, name: "boot".into(), stored: stored("boot", 201_326_592) },
@@ -126,6 +132,21 @@ mod tests {
         assert_eq!(Manifest::read(&at).unwrap(), m);
         assert_eq!(m.parts(), [true, false, true, false]);
         assert_eq!(m.size(), 100_663_296 + 4_500_000_000);
+        std::fs::remove_dir_all(&at).unwrap();
+    }
+
+    #[test]
+    fn a_manifest_that_is_a_link_or_too_large_is_refused() {
+        let at = std::env::temp_dir().join(format!("skyward-manifest-bad-{}", std::process::id()));
+        std::fs::create_dir_all(&at).unwrap();
+        let real = at.join("real.toml");
+        std::fs::write(&real, "format = 1\n").unwrap();
+        std::os::unix::fs::symlink(&real, at.join(MANIFEST)).unwrap();
+        assert!(Manifest::read(&at).is_err(), "a manifest is a file, not a link");
+
+        std::fs::remove_file(at.join(MANIFEST)).unwrap();
+        std::fs::write(at.join(MANIFEST), vec![b' '; (MANIFEST_MAX + 1) as usize]).unwrap();
+        assert!(Manifest::read(&at).is_err(), "a manifest is not a whole disk");
         std::fs::remove_dir_all(&at).unwrap();
     }
 }

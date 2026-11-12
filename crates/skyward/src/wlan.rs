@@ -56,6 +56,11 @@ const DIRECTORY_WAIT: Duration = Duration::from_secs(5);
 /// loading meanwhile.
 const INTERFACE_WAIT: Duration = Duration::from_secs(20);
 
+/// How long the interface may take to report itself up after the driver has
+/// made it; a supplicant started into that window finds no nl80211
+/// interface and never scans.
+const LINK_WAIT: Duration = Duration::from_secs(3);
+
 /// How long the supplicant may take to open its control socket.
 const SOCKET_WAIT: Duration = Duration::from_secs(10);
 
@@ -359,6 +364,7 @@ impl Station {
 
     fn start(&self) -> Result<Running> {
         bring_up(&self.cfg, &self.modules)?;
+        wait_link_up(&self.cfg.interface);
         let directory = self.start_directory()?;
         let mut child = match start_supplicant(&self.cfg, self.libraries.as_deref()) {
             Ok(child) => child,
@@ -760,6 +766,23 @@ fn interface_up(cfg: &Config) -> Result<()> {
             Err(e) if not_there(&e) && Instant::now() < until => thread::sleep(Duration::from_millis(100)),
             answer => return answer,
         }
+    }
+}
+
+/// Wait for the interface to report itself up, as a driver that made it a
+/// moment ago may not have done yet.
+fn wait_link_up(interface: &str) {
+    let link = Path::new("/sys/class/net").join(interface).join("operstate");
+    let until = Instant::now() + LINK_WAIT;
+    loop {
+        match fs::read_to_string(&link) {
+            Ok(state) if matches!(state.trim(), "up" | "unknown") => return,
+            _ => {}
+        }
+        if Instant::now() >= until {
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
     }
 }
 

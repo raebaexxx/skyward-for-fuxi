@@ -1945,7 +1945,7 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
                     }
                     Err(e) => {
                         skyward_sys::kmsg(&format!("the settings were not kept: {e:#}"))?;
-                        keeper.failed();
+                        keeper.failed(now);
                     }
                 }
             }
@@ -2449,6 +2449,7 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
                             folder: backups_in(place).join(&name),
                             parts,
                             device: cfg.device.codename.clone(),
+                            efs: cfg.backup.efs.clone(),
                             skipped: backup::data_skipped(&cfg.backup.data_skipped),
                             detach: detach(cfg.services.clone()),
                         };
