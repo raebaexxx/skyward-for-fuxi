@@ -65,8 +65,8 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.4.zip
-fastboot flash recovery skyward-fuxi-v1.4.img
+unzip skyward-fuxi-v1.5.zip
+fastboot flash recovery skyward-fuxi-v1.5.img
 fastboot reboot recovery
 ```
 

@@ -49,8 +49,8 @@ Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只
 Skyward 需要已解锁的 bootloader。从本仓库的 [Releases](https://github.com/raebaexxx/skyward-for-fuxi/releases) 下载 zip（由 `fuxi-v*` 标签发布），文件名形如 `skyward-fuxi-<版本>`。使用 `SHA256SUMS.txt` 核对并解压之后，在手机处于 fastboot 模式的时候，把其中的镜像刷入 recovery 分区：
 
 ```sh
-unzip skyward-fuxi-v1.4.zip
-fastboot flash recovery skyward-fuxi-v1.4.img
+unzip skyward-fuxi-v1.5.zip
+fastboot flash recovery skyward-fuxi-v1.5.img
 fastboot reboot recovery
 ```
 
