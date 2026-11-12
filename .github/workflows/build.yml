@@ -18,6 +18,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Shown as the build's author on the Specs page.
+  SKYWARD_BUILDER: RaeBaeXXX
   # The Android 17 recovery of crDroid 17.0 for fuxi, kept in the base release.
   BASE: fuxi-a17-recovery.img
   BASE_SHA256: 3fb4d898eaafaeb01d11e6fffdc59f1437b9760231512d899783fd0f0b3bed1a

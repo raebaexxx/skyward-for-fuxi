@@ -36,15 +36,15 @@ fn lang() -> Lang {
 }
 
 /// What a shell in the recovery writes for a few commands, colours and all.
-const SHELL_SAMPLE: &[u8] = b"ishtar:/ # getprop ro.product.device\r\nishtar\r\n\
-ishtar:/ # ls --color=always /\r\n\
+const SHELL_SAMPLE: &[u8] = b"fuxi:/ # getprop ro.product.device\r\nfuxi\r\n\
+fuxi:/ # ls --color=always /\r\n\
 \x1b[1;34macct\x1b[0m  \x1b[1;34mapex\x1b[0m  \x1b[1;36mbin\x1b[0m  \x1b[1;34mconfig\x1b[0m  \x1b[1;34mdata\x1b[0m  \x1b[1;34mdev\x1b[0m\r\n\
 \x1b[1;36metc\x1b[0m  \x1b[1;32minit\x1b[0m  \x1b[1;34mmetadata\x1b[0m  \x1b[1;34mmnt\x1b[0m  \x1b[1;34modm\x1b[0m\r\n\
 \x1b[1;34mproc\x1b[0m  \x1b[1;34msys\x1b[0m  \x1b[1;34msystem\x1b[0m  \x1b[1;34mtmp\x1b[0m  \x1b[1;34mvendor\x1b[0m\r\n\
-ishtar:/ # df -h /metadata\r\n\
+fuxi:/ # df -h /metadata\r\n\
 Filesystem      Size Used Avail Use% Mounted on\r\n\
 /dev/block/sda9  59M 7.0M   52M  12% /metadata\r\n\
-ishtar:/ # ";
+fuxi:/ # ";
 
 /// A script as the editor shows it: an indented line, a comment in
 /// Chinese, and lines long enough to wrap.
@@ -87,7 +87,7 @@ Info: checkpoint state = 46 :  crc compacted_summary orphan_inodes sudden-power-
 \n\
 Done: 38.204116 secs\n";
 
-/// The 13 Ultra's partitions as the filesystem page lists them, its data
+/// The Xiaomi 13's partitions as the filesystem page lists them, its data
 /// partition open or closed.
 fn phone_filesystems(open: bool) -> Vec<FsRow> {
     vec![
@@ -95,18 +95,18 @@ fn phone_filesystems(open: bool) -> Vec<FsRow> {
             name: "data".into(),
             mount_point: "/data".into(),
             filesystem: open.then(|| "f2fs".into()),
-            size: 237_498_597_376,
+            size: 476_000_000_000,
             others: Vec::new(),
         },
         FsRow { name: "metadata".into(), mount_point: "/metadata".into(), filesystem: Some("f2fs".into()), size: 64 << 20, others: Vec::new() },
     ]
 }
 
-/// The systems of a 17 Ultra with a second system installed, HyperOS
+/// The systems of a Xiaomi 13 with a second system installed, HyperOS
 /// starting.
 fn two_systems() -> Overview {
     Overview {
-        installed: Named { name: "HyperOS 3".into(), version: Some("OS3.0.308.0.WMACNXM".into()) },
+        installed: Named { name: "HyperOS 3".into(), version: Some("OS3.0.309.0.WMCCNXM".into()) },
         other: Some(Other { id: "ubuntu-touch".into(), name: "Ubuntu Touch".into(), version: "24.04-1.x".into(), size: 32_000_000_000 }),
         other_starts: false,
         changed: false,
@@ -244,7 +244,7 @@ fn main() -> Result<()> {
         (
             "38-sideload-refused",
             false,
-            Install::Finished { outcome: Outcome::Refused(Refusal::OtherDevice("ishtar".into())), damage: None },
+            Install::Finished { outcome: Outcome::Refused(Refusal::OtherDevice("nezha".into())), damage: None },
         ),
         (
             "39-sideload-failed",
@@ -357,7 +357,7 @@ fn main() -> Result<()> {
         app.set_files("/sdcard/Download".into(), Ok(sample_download()), LISTED);
         app.state.file = sample_download().into_iter().find(|e| e.name == name);
     };
-    let ota = "/sdcard/Download/OTA_ishtar_OS3.0.305.0.WMACNXM_20260412_full_package_signed_for_recovery_install.zip";
+    let ota = "/sdcard/Download/OTA_fuxi_OS3.0.305.0.WMACNXM_20260412_full_package_signed_for_recovery_install.zip";
     let copying = || FileTask::Copy { path: ota.into(), into: "/sdcard/Skyward".into() };
     let from_storage = |app: &mut App, install: Install| {
         app.state.source = Source::File(Place::Storage);
@@ -369,7 +369,7 @@ fn main() -> Result<()> {
         let mut lines = vec![
             " ",
             "******************************",
-            "  Example ROM 2.1 for ishtar",
+            "  Example ROM 2.1 for fuxi",
             "******************************",
             " ",
             "- 正在检查设备型号",
@@ -387,7 +387,7 @@ fn main() -> Result<()> {
     };
     let script = |app: &mut App, install: Install, failed: bool| {
         from_storage(app, install);
-        app.state.package_name = Some("ExampleROM-2.1-ishtar.zip".into());
+        app.state.package_name = Some("ExampleROM-2.1-fuxi.zip".into());
         app.state.script_output = said(failed);
     };
     let usb_page = Screen::Choose(Place::UsbDrive);
@@ -410,7 +410,7 @@ fn main() -> Result<()> {
         ("19-choose-usb-light", usb_page, false, &|app| {
             app.set_usb_drive(Some(UsbDrive::Shown));
             let made = 1_790_380_800;
-            let rows = vec![folder("ROMs", 4, made), file("boot.img", 100_663_296, made), file("ishtar-ota-OS3.0.306.0.WMACNXM.zip", 7_103_043_868, made)];
+            let rows = vec![folder("ROMs", 4, made), file("boot.img", 100_663_296, made), file("fuxi-ota-OS3.0.306.0.WMACNXM.zip", 7_103_043_868, made)];
             app.set_place(Place::UsbDrive, String::new(), Ok(rows), LISTED);
         }),
         ("20-install-usb-checking", Screen::Installing, false, &|app| {
@@ -434,7 +434,7 @@ fn main() -> Result<()> {
             from_storage(app, Install::Finished { outcome: Outcome::Refused(Refusal::Unknown), damage: None })
         }),
         ("20-install-storage-failed", Screen::Installing, false, &|app| {
-            let gone = "read /sdcard/Download/OTA_ishtar_OS3.0.305.0.WMACNXM.zip: Input/output error (os error 5)";
+            let gone = "read /sdcard/Download/OTA_fuxi_OS3.0.305.0.WMACNXM.zip: Input/output error (os error 5)";
             from_storage(app, Install::Finished { outcome: Outcome::Failed(Failure::Unreadable(gone.into())), damage: Some(Damage::System) })
         }),
         ("20-install-script-confirming", Screen::Installing, false, &|app| {
@@ -688,7 +688,7 @@ fn main() -> Result<()> {
             app.part_at(1);
         }),
         ("168-installing-light-asked-locked", Screen::Home, false, &|app| {
-            app.start_asked(false, "/sdcard/Download/ishtar-ota_full-OS3.0.308.0.WMACNXM-user-16.0.zip".into());
+            app.start_asked(false, "/sdcard/Download/fuxi-ota_full-OS3.0.308.0.WMACNXM-user-16.0.zip".into());
             app.asked_locked(0, 0);
         }),
         ("169-installing-dark-asked-opening", Screen::Home, true, &|app| {
@@ -736,9 +736,9 @@ fn main() -> Result<()> {
             app.part_work_ended(Ok(()), 0);
         }),
         ("178-file-info-light-package", Screen::FileInfo, false, &|app| {
-            in_download(app, "OTA_ishtar_OS3.0.305.0.WMACNXM_20260412_full_package_signed_for_recovery_install.zip")
+            in_download(app, "OTA_fuxi_OS3.0.305.0.WMACNXM_20260412_full_package_signed_for_recovery_install.zip")
         }),
-        ("179-file-info-dark-image", Screen::FileInfo, true, &|app| in_download(app, "skyward-recovery-ishtar.img")),
+        ("179-file-info-dark-image", Screen::FileInfo, true, &|app| in_download(app, "skyward-recovery-fuxi.img")),
         ("180-install-opened-light-checking", Screen::Installing, false, &|app| {
             app.state.source = Source::Opened { drive: false };
             app.state.install = Install::Checking { size: 7_014_220_000, stage: None };
@@ -848,7 +848,7 @@ fn main() -> Result<()> {
         ("75-terminal-light-ended", Screen::Terminal, false, &|app| {
             let (rows, cols) = app.term_size(&fonts);
             app.term_started(rows, cols);
-            app.term_output(b"ishtar:/ # exit\r\n");
+            app.term_output(b"fuxi:/ # exit\r\n");
             app.term_ended(TermEnd::Exited(0));
         }),
         ("55-language-light", Screen::Language, false, &|_| {}),
@@ -1255,9 +1255,10 @@ fn swipe_in(app: &mut App, f: &Fonts, info: &DeviceInfo, x: f32) -> u64 {
     64
 }
 
-/// The slot's partitions on a Xiaomi 13 Ultra, in the order super lists
+/// The slot's partitions on the Xiaomi 13, in the order super lists
 /// them and where the recovery mounts them, all mounted but `unmounted`.
-/// The touch programs run from odm.
+/// crDroid's touchscreen driver reads touches itself, so no MIUI program
+/// runs from odm here.
 fn sample_mounts(unmounted: &[&str]) -> Vec<MountRow> {
     let partitions = [
         ("odm", "/odm"),
@@ -1273,8 +1274,7 @@ fn sample_mounts(unmounted: &[&str]) -> Vec<MountRow> {
         .iter()
         .map(|&(base, point)| {
             let mounted = !unmounted.contains(&base);
-            let holders = if mounted && base == "odm" { vec!["touch_report".into(), "touchsensor".into()] } else { Vec::new() };
-            MountRow { base: base.into(), point: point.into(), mounted, holders }
+            MountRow { base: base.into(), point: point.into(), mounted, holders: Vec::new() }
         })
         .collect()
 }
@@ -1299,7 +1299,7 @@ fn file(name: &str, size: u64, modified: i64) -> FileRow {
     FileRow { name: name.into(), kind: FileKind::File, size, modified, mode: 0o100_644, uid: 0, gid: 0 }
 }
 
-/// Part of the root folder of a Xiaomi 13 Ultra, as `ls -la /` lists it,
+/// Part of the root folder of the Xiaomi 13, as `ls -la /` lists it,
 /// in the file manager's order.
 fn sample_root() -> Vec<FileRow> {
     let made = RAMDISK_TIME;
@@ -1331,9 +1331,9 @@ fn sample_download() -> Vec<FileRow> {
         folder("安装包", 68, this_year),
         file("1d9bf122-130e-4db7-ae55-460c84819f0e.pdf", 1_090_000, this_year),
         file("2021一带一路暨金砖大赛之物联网技术及其在智慧城市与工业互联网领域的应用创新赛表彰文件.pdf", 634_960, earlier),
-        file("OTA_ishtar_OS3.0.305.0.WMACNXM_20260412_full_package_signed_for_recovery_install.zip", 7_014_220_000, this_year),
+        file("OTA_fuxi_OS3.0.305.0.WMACNXM_20260412_full_package_signed_for_recovery_install.zip", 7_014_220_000, this_year),
         file("README.txt", 900, today),
-        file("skyward-recovery-ishtar.img", 104_857_600, today),
+        file("skyward-recovery-fuxi.img", 104_857_600, today),
     ]
 }
 
@@ -1344,7 +1344,7 @@ fn sample_types() -> Vec<FileRow> {
     let mut rows: Vec<FileRow> = [
         ("boot.img", 100_663_296),
         ("IMG_20261021_143005.jpg", 4_812_000),
-        ("update-ishtar.zip", 1_402_000_000),
+        ("update-fuxi.zip", 1_402_000_000),
         ("app-release.apk", 11_300_000),
         ("recovery.log", 486_000),
         ("VID_20261020_201512.mp4", 182_400_000),
@@ -1363,7 +1363,7 @@ fn sample_types() -> Vec<FileRow> {
     rows
 }
 
-/// A Xiaomi 13 Ultra's /system/bin: programs, and the links to toybox that
+/// The Xiaomi 13's /system/bin: programs, and the links to toybox that
 /// stand for its commands, in the file manager's order.
 fn sample_bin() -> Vec<FileRow> {
     let programs = [
@@ -1396,7 +1396,7 @@ fn sample_bin() -> Vec<FileRow> {
     rows
 }
 
-/// Networks in range, as the 13 Ultra's supplicant found them on
+/// Networks in range, as the Xiaomi 13's supplicant found them on
 /// 2026-10-22, the strongest of each.
 fn nearby() -> Vec<Network> {
     let n = |name: &str, signal: i32, frequency: u32, also: Option<u32>, security: Security| {
@@ -1430,7 +1430,7 @@ fn joined(stage: Joining) -> Wlan {
     Wlan { power: Power::On, networks: n, joined: Some(j) }
 }
 
-/// What a home router gave the 13 Ultra.
+/// What a home router gave the Xiaomi 13.
 fn router_link() -> Link {
     use std::net::Ipv4Addr;
     Link {
@@ -1447,14 +1447,14 @@ fn router_link() -> Link {
     }
 }
 
-/// A newer system than the 17 Ultra's own, as the update server tells of
+/// A newer system than the Xiaomi 13's own, as the update server tells of
 /// one.
 fn newest() -> Release {
     Release {
-        version: "OS4.0.6.0.XPACNXM".into(),
-        name: "nezha-ota_full-OS4.0.6.0.XPACNXM-user-17.0-3f2a9c81d4.zip".into(),
-        urls: vec!["https://ultimateota.d.miui.com/OS4.0.6.0.XPACNXM/nezha-ota_full-OS4.0.6.0.XPACNXM-user-17.0-3f2a9c81d4.zip".into()],
-        md5: "3f2a9c81d4e05b7a6c1e9d2f8b7a6c5d".into(),
+        version: "OS3.0.309.0.WMCCNXM".into(),
+        name: "fuxi-ota_full-OS3.0.309.0.WMCCNXM-user-16.0-4729900895.zip".into(),
+        urls: vec!["https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS3.0.309.0.WMCCNXM/fuxi-ota_full-OS3.0.309.0.WMCCNXM-user-16.0-4729900895.zip".into()],
+        md5: "f3749538243783db7393c3bc4cb72bb4".into(),
         size: "7.1G".into(),
         length: Some(7_572_375_802),
     }
@@ -1467,17 +1467,17 @@ fn online(app: &mut App) {
 }
 
 /// A newer release of Skyward than the one running, as GitHub tells of it,
-/// with its zip for the 17 Ultra.
+/// with its zip for the Xiaomi 13.
 fn skyward_newest() -> Newest {
     Newest {
-        version: "0.1.4".into(),
+        version: "1.5".into(),
         newer: true,
         build: Some(Build {
-            name: "skyward-v0.1.4-nezha-OS4.0.4.0.XPACNXM.zip".into(),
-            url: "https://api.github.com/repos/kirklin/skyward/releases/assets/719751747".into(),
-            link: "https://github.com/kirklin/skyward/releases/download/v0.1.4/skyward-v0.1.4-nezha-OS4.0.4.0.XPACNXM.zip".into(),
-            size: 43_145_196,
-            sha256: "9f6165079529418d8f6635beddfdd9abf9a70c89d69eb467a9922b0db69bfaf1".into(),
+            name: "skyward-fuxi-v1.5.zip".into(),
+            url: "https://api.github.com/repos/raebaexxx/skyward-for-fuxi/releases/assets/1".into(),
+            link: "https://github.com/raebaexxx/skyward-for-fuxi/releases/download/fuxi-v1.5/skyward-fuxi-v1.5.zip".into(),
+            size: 43_348_321,
+            sha256: "85f67fb4a699492398e8fe69a76f0388de39338a44f8e6ed078bfef1f4d56b0f".into(),
         }),
     }
 }
@@ -1529,7 +1529,7 @@ fn whole_page(app: &mut App, f: &Fonts, info: &DeviceInfo) -> Canvas {
     c
 }
 
-/// Xiaomi 17 Ultra by Leica as `skyward info` read it on 2026-10-18 (the
+/// Xiaomi 13 as `skyward info` read it on 2026-11-12 (the
 /// config supplies the SoC name, panel and screen size).
 fn fuxi(cfg: &DeviceConfig) -> DeviceInfo {
     DeviceInfo {

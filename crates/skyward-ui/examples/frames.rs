@@ -6,10 +6,10 @@ use skyward_ui::{pages, App, Canvas, Ctx, Fonts, Theme};
 use skyward_vab::{Slot, SnapshotState};
 use std::time::Instant;
 
-// A Xiaomi 13 Ultra panel: 1440 × 3200 at 560 dpi, 120 frames a second.
-const W: u32 = 1440;
-const H: u32 = 3200;
-const PPD: f32 = 3.5;
+// A Xiaomi 13 panel: 1080 × 2400 at 420 dpi, 120 frames a second.
+const W: u32 = 1080;
+const H: u32 = 2400;
+const PPD: f32 = 2.625;
 const FRAME_US: u64 = 8333;
 /// What a frame may take to draw, in ms, leaving the rest of the frame for
 /// copying it to the panel's buffer and handing it over.
@@ -337,19 +337,19 @@ impl<'a> Panel<'a> {
 
 fn info() -> DeviceInfo {
     DeviceInfo {
-        model: "Xiaomi 13 Ultra".into(),
-        codename: "ishtar".into(),
+        model: "Xiaomi 13".into(),
+        codename: "fuxi".into(),
         soc: None,
-        cpu: Cpu { cores: 8, max_khz: Some(3_187_200) },
-        ram_kib: 15_556_972,
+        cpu: Cpu { cores: 8, max_khz: Some(3_190_000) },
+        ram_kib: 11_534_336,
         panel: Some((W, H)),
-        screen: Some(6.73),
+        screen: Some(6.36),
         os_version: None,
         android: None,
         locale: None,
         security_patch: None,
-        kernel: "5.15.178".into(),
-        storage: Storage { total: 496_550_785_024, free: None },
+        kernel: "6.12.69-android16".into(),
+        storage: Storage { total: 510_027_597_824, free: None },
         // A battery with a temperature and an A/B phone, as the status bar
         // shows them on every frame.
         battery: Some(Battery {

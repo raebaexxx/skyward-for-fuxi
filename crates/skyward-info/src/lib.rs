@@ -12,11 +12,19 @@ use std::str::FromStr;
 
 /// Version of this build, shown on the About page and compared against the
 /// newest release: the release this build was made for where the build named
-/// one — a release of this fork is tagged `nuwa-v1.5`, and the workflow sets
+/// one — a release of this fork is tagged `fuxi-v1.5`, and the workflow sets
 /// `SKYWARD_VERSION` to `1.5` — and the crates' own version otherwise.
 pub const VERSION: &str = match option_env!("SKYWARD_VERSION") {
     Some(named) => named,
     None => env!("CARGO_PKG_VERSION"),
+};
+
+/// Who built this recovery, shown on the Specs page. A build made by someone
+/// else names them in `SKYWARD_BUILDER`; this fork's own builds are
+/// RaeBaeXXX's.
+pub const BUILDER: Option<&str> = match option_env!("SKYWARD_BUILDER") {
+    Some(named) => Some(named),
+    None => Some("RaeBaeXXX"),
 };
 
 const CPU: &str = "/sys/devices/system/cpu";

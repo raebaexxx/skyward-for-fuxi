@@ -4,7 +4,7 @@
 
 [English](README.md) | 简体中文
 
-Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只服务一台手机：**小米 13**（代号 `fuxi`）。上游项目支持的其他机型见 [kirklin/skyward](https://github.com/kirklin/skyward)。
+Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只服务一台手机：**小米 13**（代号 `fuxi`），由 **RaeBaeXXX** 维护。上游项目支持的其他机型见 [kirklin/skyward](https://github.com/kirklin/skyward)。
 
 ![在小米 13 上运行的 Skyward：关于、主页、设置和文件管理](docs/overview.webp)
 
@@ -38,15 +38,23 @@ Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只
 
 镜像基于 crDroid 17.0 的 Android 17 recovery 构建。该 recovery 保存在本仓库 `base` release 的 `fuxi-a17-recovery.img` 资产中。Android 16 原厂 recovery 不能用于 crDroid 17：它的 libc++ 无法加载 key 服务所用的 Android 17 vendor 程序。
 
+## 已验证的内容
+
+已在 crDroid 17.0 的手机上验证：PIN 解密、内部存储、WLAN、MTP、adb、重启，以及「关于」页面。
+
+仍需在手机上验证：备份与恢复、清除数据、文件管理和终端、U 盘与 `adb sideload`、更新、双系统，以及分区的挂载、修复和格式化。
+
 ## 安装
 
 Skyward 需要已解锁的 bootloader。从本仓库的 [Releases](https://github.com/raebaexxx/skyward-for-fuxi/releases) 下载 zip（由 `fuxi-v*` 标签发布），文件名形如 `skyward-fuxi-<版本>`。使用 `SHA256SUMS.txt` 核对并解压之后，在手机处于 fastboot 模式的时候，把其中的镜像刷入 recovery 分区：
 
 ```sh
-unzip skyward-fuxi-v1.0.zip
-fastboot flash recovery skyward-fuxi-v1.0.img
+unzip skyward-fuxi-v1.4.zip
+fastboot flash recovery skyward-fuxi-v1.4.img
 fastboot reboot recovery
 ```
+
+请使用你下载的版本号；zip 以对应的标签命名。
 
 之后可以在 Skyward 自己的“安装”页面安装解压出来的新版镜像。打开 **自动重新刷入 Skyward** 之后，系统更新或者刷机包覆盖 recovery 分区的时候，Skyward 会重新刷回这些分区。
 
@@ -59,11 +67,13 @@ Skyward 中的 adb 是 root shell，手机上无需授权：手机处于 recover
 Skyward 使用 `rust-toolchain.toml` 指定的稳定版 Rust 和它的 `aarch64-linux-android` 目标、Android NDK r29 和 [cargo-ndk](https://github.com/bbqsrc/cargo-ndk) 构建。recovery 服务针对手机构建，第二个系统的首个程序以静态方式构建，打包工具针对电脑构建：
 
 ```sh
-cargo ndk -t arm64-v8a --platform 30 build --release -p skyward
+# 设置 SKYWARD_VERSION 后，构建会注明它对应的版本；不设置时使用工作区版本 1.5.0。
+SKYWARD_VERSION=1.5 \
+  cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
-  cargo ndk -t arm64-v8a --platform 30 build --release \
+  cargo ndk -t arm64-v8a --platform 30 build --locked --release \
   -p skyward-system-init --target-dir target/system-init
-cargo build --release -p skyward-pack
+cargo build --locked --release -p skyward-pack
 ```
 
 底座是手机上安装的 crDroid 构建的 Android 17 recovery。本仓库保存了测试所用的那个：
@@ -99,6 +109,10 @@ cargo ndk -t arm64-v8a --platform 30 clippy -p skyward -p skyward-install -p sky
 ```sh
 cargo run --release -p skyward-preview -- target/preview --lang en
 ```
+
+## 致谢
+
+Skyward 由 **Kirk Lin** 创建，以 GPL-3.0-or-later 授权。这个 fuxi 分支由 **RaeBaeXXX** 维护。界面文字使用小米 MiSans，终端使用 OFL 授权的 Kirk Mono。
 
 ## 许可证
 

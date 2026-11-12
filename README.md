@@ -5,8 +5,9 @@
 English | [简体中文](README.zh-CN.md)
 
 Skyward is a recovery written in Rust, from scratch. This fork is dedicated to
-one phone: the **Xiaomi 13** (codename `fuxi`). For the other devices the
-upstream project supports, see [kirklin/skyward](https://github.com/kirklin/skyward).
+one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
+**RaeBaeXXX**. For the other devices the upstream project supports, see
+[kirklin/skyward](https://github.com/kirklin/skyward).
 
 ![Skyward running on the Xiaomi 13](docs/overview.webp)
 
@@ -46,6 +47,15 @@ recovery is kept as the `fuxi-a17-recovery.img` asset of this repository's
 system: its libc++ cannot load the Android 17 vendor binaries the key service
 is built from.
 
+## What has been tested
+
+Verified on the phone with crDroid 17.0: PIN decryption, internal storage,
+WLAN, MTP, adb, rebooting, and the About page.
+
+Still to be verified on the phone: backup and restore, wipe, the file manager
+and terminal, USB drives and `adb sideload`, the updater, dual boot, and
+mounting, repairing or formatting partitions.
+
 ## Installing
 
 Skyward needs an unlocked bootloader. Download the zip from this repository's
@@ -55,10 +65,12 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.0.zip
-fastboot flash recovery skyward-fuxi-v1.0.img
+unzip skyward-fuxi-v1.4.zip
+fastboot flash recovery skyward-fuxi-v1.4.img
 fastboot reboot recovery
 ```
+
+Use the name of the release you downloaded; the zip is named after its tag.
 
 Afterwards a newer image, unzipped, installs from Skyward's own Install page.
 With **Flash Skyward again** on, a system update or zip that writes over the
@@ -80,11 +92,14 @@ for the phone, its second system's first program statically, and the packer for
 the computer:
 
 ```sh
-cargo ndk -t arm64-v8a --platform 30 build --release -p skyward
+# SKYWARD_VERSION makes the build name the release it is for; a local build
+# without it uses the workspace version, 1.5.0.
+SKYWARD_VERSION=1.5 \
+  cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
-  cargo ndk -t arm64-v8a --platform 30 build --release \
+  cargo ndk -t arm64-v8a --platform 30 build --locked --release \
   -p skyward-system-init --target-dir target/system-init
-cargo build --release -p skyward-pack
+cargo build --locked --release -p skyward-pack
 ```
 
 The base is the Android 17 recovery of the crDroid build installed on the
@@ -125,6 +140,12 @@ such as `en` or `zh-TW`:
 ```sh
 cargo run --release -p skyward-preview -- target/preview --lang en
 ```
+
+## Credits
+
+Skyward was created by **Kirk Lin** and is licensed under the GPL-3.0-or-later.
+This fuxi fork is maintained by **RaeBaeXXX**. The interface text is set in
+Xiaomi's MiSans; the terminal uses the OFL-licensed Kirk Mono.
 
 ## License
 
