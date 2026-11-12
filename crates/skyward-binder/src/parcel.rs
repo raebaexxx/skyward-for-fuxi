@@ -3,7 +3,12 @@ use anyhow::{bail, Context, Result};
 /// The mark libbinder writes into every call header. Both ends have to agree
 /// on it: it tells apart the copies of libbinder a phone carries, and the one
 /// the recovery's own programs are built from is the recovery copy.
-const HEADER: i32 = i32::from_be_bytes(*b"RECO");
+pub(crate) const HEADER: i32 = i32::from_be_bytes(*b"RECO");
+
+/// The mark a program built for the vendor interface writes in its calls.
+/// The vendor's own service directory is one such program, so it turns away
+/// a call that opens with the recovery's mark.
+pub const VENDOR_HEADER: i32 = i32::from_be_bytes(*b"VNDR");
 
 /// Strict mode gathers violations rather than acting on them; a caller with
 /// no policy of its own still sets that bit.
@@ -47,10 +52,16 @@ impl Parcel {
     /// A call to `interface`, opened with the header libbinder reads before
     /// it looks at anything the method itself takes.
     pub fn call(interface: &str) -> Parcel {
+        Parcel::call_with(HEADER, interface)
+    }
+
+    /// A call to `interface` written as the program rebuilt from `header`'s
+    /// copy of libbinder writes it.
+    pub fn call_with(header: i32, interface: &str) -> Parcel {
         let mut p = Parcel::default();
         p.i32(STRICT_MODE_PENALTY_GATHER);
         p.i32(UNSET_WORK_SOURCE);
-        p.i32(HEADER);
+        p.i32(header);
         p.string(interface);
         p
     }
@@ -239,6 +250,16 @@ mod tests {
         assert_eq!(r.i32().unwrap(), 0x5245_434f, "the recovery's mark, RECO");
         assert_eq!(r.string().unwrap(), "a.b.IC");
         assert_eq!(r.here(), p.bytes().len(), "the header is all of it");
+    }
+
+    #[test]
+    fn a_call_written_for_the_vendor_opens_with_its_own_mark() {
+        let p = Parcel::call_with(VENDOR_HEADER, "a.b.IC");
+        let mut r = Reader::new(p.bytes());
+        assert_eq!(r.i32().unwrap(), i32::MIN, "strict mode gathers");
+        assert_eq!(r.i32().unwrap(), -1, "no work source");
+        assert_eq!(r.i32().unwrap(), 0x564e_4452, "the vendor's mark, VNDR");
+        assert_eq!(r.string().unwrap(), "a.b.IC");
     }
 
     #[test]

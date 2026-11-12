@@ -64,6 +64,11 @@ firmware = [
 ]
 interface = "wlan0"
 supplicant = "/vendor/bin/hw/wpa_supplicant"
+# Android 17's supplicant is an AIDL service: as it starts it registers with
+# the vendor interface's service directory, and waits for that directory
+# before it opens the driver. A recovery starts neither the directory nor the
+# driver node the vendor's programs look for, so both are made here.
+vendor_directory = "/vendor/bin/vndservicemanager"
 libraries = ["/vendor/lib64", "/system/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
 service = "android.hardware.wifi.supplicant.ISupplicant/default"
 probe = "http://connect.rom.miui.com/generate_204"

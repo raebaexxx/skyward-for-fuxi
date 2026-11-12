@@ -38,6 +38,20 @@ const HOME: &str = "/skyward/run/supplicant";
 /// make its socket.
 const WIFI: u32 = 1010;
 
+/// The vendor interface's own service directory, and the driver its
+/// programs ask for. Android starts the directory beside the one the rest of
+/// the system uses; a recovery does not, so the WLAN brings it on with the
+/// supplicant, which registers with it as an AIDL service before it opens
+/// the driver.
+const VENDOR_DRIVER: &str = "/dev/vndbinder";
+
+/// Where the driver's own filesystem keeps the vendor node, which is what
+/// the name its programs ask for is linked to.
+const VENDOR_NODE: &str = "/dev/binderfs/vndbinder";
+
+/// How long the vendor service directory may take to answer once started.
+const DIRECTORY_WAIT: Duration = Duration::from_secs(5);
+
 /// How long the driver may take to make its interface, the chip's firmware
 /// loading meanwhile.
 const INTERFACE_WAIT: Duration = Duration::from_secs(20);
@@ -189,6 +203,9 @@ struct Back {
 /// The supplicant running, and the address the network gave.
 struct Running {
     child: Child,
+    /// The vendor service directory the supplicant registers with, when the
+    /// WLAN started it and so has to end it too.
+    directory: Option<Child>,
     control: Control,
     monitor: Control,
     mac: [u8; 6],
@@ -342,7 +359,14 @@ impl Station {
 
     fn start(&self) -> Result<Running> {
         bring_up(&self.cfg, &self.modules)?;
-        let mut child = start_supplicant(&self.cfg, self.libraries.as_deref())?;
+        let directory = self.start_directory()?;
+        let mut child = match start_supplicant(&self.cfg, self.libraries.as_deref()) {
+            Ok(child) => child,
+            Err(e) => {
+                end_directory(directory);
+                return Err(e);
+            }
+        };
         let socket = Path::new(HOME).join("sockets").join(&self.cfg.interface);
         let connected = (|| -> Result<(Control, Control)> {
             let control = Control::open(&socket)?;
@@ -355,12 +379,14 @@ impl Station {
             Ok(both) => both,
             Err(e) => {
                 end(&mut child, None);
+                end_directory(directory);
                 return Err(e);
             }
         };
-        let mac = iface::hardware_address(&self.cfg.interface)?;
+        let mac = interface_address(&self.cfg.interface)?;
         Ok(Running {
             child,
+            directory,
             control,
             monitor,
             mac,
@@ -375,10 +401,41 @@ impl Station {
         })
     }
 
+    /// Start the vendor service directory the supplicant registers with,
+    /// where the phone has one and the recovery did not start it already.
+    /// The directory is given back only if it was started here.
+    fn start_directory(&self) -> Result<Option<Child>> {
+        let Some(program) = &self.cfg.vendor_directory else { return Ok(None) };
+        prepare_vendor_driver()?;
+        if directory_answers() {
+            return Ok(None);
+        }
+        let mut path: Vec<String> = self.cfg.libraries.clone();
+        if let Some(dir) = &self.libraries {
+            path.push(dir.to_string_lossy().into_owned());
+        }
+        let mut child = Process::new(program)
+            .arg(VENDOR_DRIVER)
+            .env("LD_LIBRARY_PATH", path.join(":"))
+            .current_dir("/")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .with_context(|| format!("start {program}"))?;
+        if let Err(e) = wait_for_directory(DIRECTORY_WAIT) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
+        Ok(Some(child))
+    }
+
     fn off(&mut self) {
         self.unaddress();
         if let Some(mut r) = self.running.take() {
             end(&mut r.child, Some(&r.control));
+            end_directory(r.directory.take());
         }
         if let Err(e) = iface::set_up(&self.cfg.interface, false) {
             let _ = skyward_sys::kmsg(&format!("{e:#}"));
@@ -685,7 +742,36 @@ fn bring_up(cfg: &Config, modules: &[PathBuf]) -> Result<()> {
             thread::sleep(Duration::from_millis(100));
         }
     }
-    iface::set_up(&cfg.interface, true)
+    interface_up(cfg)
+}
+
+/// Whether the failure is the interface not being there yet, which the
+/// driver's own thread still making it looks like.
+fn not_there(e: &anyhow::Error) -> bool {
+    e.chain().any(|cause| cause.downcast_ref::<std::io::Error>().is_some_and(|e| e.raw_os_error() == Some(libc::ENODEV)))
+}
+
+/// Bring the interface up, waiting out the moment between the driver making
+/// its folder and the kernel taking the interface itself.
+fn interface_up(cfg: &Config) -> Result<()> {
+    let until = Instant::now() + INTERFACE_WAIT;
+    loop {
+        match iface::set_up(&cfg.interface, true) {
+            Err(e) if not_there(&e) && Instant::now() < until => thread::sleep(Duration::from_millis(100)),
+            answer => return answer,
+        }
+    }
+}
+
+/// The interface's hardware address, waited for the same way.
+fn interface_address(interface: &str) -> Result<[u8; 6]> {
+    let until = Instant::now() + INTERFACE_WAIT;
+    loop {
+        match iface::hardware_address(interface) {
+            Err(e) if not_there(&e) && Instant::now() < until => thread::sleep(Duration::from_millis(100)),
+            answer => return answer,
+        }
+    }
 }
 
 /// Put a file the driver asks for where the firmware loader looks.
@@ -705,6 +791,51 @@ fn place(file: &Firmware) -> Result<()> {
         }
     };
     fs::write(&to, bytes).with_context(|| format!("write {}", to.display()))
+}
+
+/// Give the vendor interface's programs the driver name they ask for, and
+/// open it to the user the supplicant becomes. Android's own init makes the
+/// links and gives the nodes their modes; a recovery runs neither.
+fn prepare_vendor_driver() -> Result<()> {
+    let name = Path::new(VENDOR_DRIVER);
+    if fs::symlink_metadata(name).is_err() {
+        let node = Path::new(VENDOR_NODE);
+        ensure!(node.exists(), "{} is missing, so {} cannot be made", node.display(), name.display());
+        std::os::unix::fs::symlink(node, name).with_context(|| format!("link {} to {}", name.display(), node.display()))?;
+    }
+    fs::set_permissions(name, fs::Permissions::from_mode(0o666)).with_context(|| format!("open {} to the supplicant", name.display()))
+}
+
+/// Whether the vendor service directory takes calls. The directory answers
+/// every lookup with a service or with nothing, so what it is asked does
+/// not matter; the vendor one knows itself as `manager`, unlike the
+/// system's.
+fn directory_answers() -> bool {
+    let Ok(binder) = skyward_binder::driver::Binder::vendor() else { return false };
+    let found = skyward_binder::service::find_vendor(&binder, "manager");
+    found.is_ok()
+}
+
+/// Wait until the vendor service directory answers, which the supplicant
+/// waits for itself before it opens the driver.
+fn wait_for_directory(timeout: Duration) -> Result<()> {
+    let binder = skyward_binder::driver::Binder::vendor().context("open the vendor driver")?;
+    let until = Instant::now() + timeout;
+    loop {
+        if skyward_binder::service::find_vendor(&binder, "manager").is_ok() {
+            return Ok(());
+        }
+        ensure!(Instant::now() < until, "the vendor service directory did not answer in {} seconds", timeout.as_secs());
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// End the vendor service directory if the WLAN started it.
+fn end_directory(directory: Option<Child>) {
+    if let Some(mut child) = directory {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 /// Start the supplicant on the interface, and wait for its control socket.

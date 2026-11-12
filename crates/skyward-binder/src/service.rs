@@ -80,8 +80,21 @@ pub fn version(service: &crate::driver::Handle, interface: &str) -> Result<i32> 
 /// registered it.
 #[cfg(target_os = "android")]
 pub fn find<'a>(binder: &'a crate::driver::Binder, name: &str) -> Result<Option<crate::driver::Handle<'a>>> {
+    find_with(binder, name, crate::parcel::HEADER)
+}
+
+/// The service registered under `name` in the directory the vendor
+/// interface's own programs talk over, which opens its calls with a mark of
+/// its own.
+#[cfg(target_os = "android")]
+pub fn find_vendor<'a>(binder: &'a crate::driver::Binder, name: &str) -> Result<Option<crate::driver::Handle<'a>>> {
+    find_with(binder, name, crate::parcel::VENDOR_HEADER)
+}
+
+#[cfg(target_os = "android")]
+fn find_with<'a>(binder: &'a crate::driver::Binder, name: &str, header: i32) -> Result<Option<crate::driver::Handle<'a>>> {
     let directory = binder.directory()?;
-    let mut call = Parcel::call(DIRECTORY);
+    let mut call = Parcel::call_with(header, DIRECTORY);
     call.string(name);
     let reply = directory.transact(methods()?.check_service, &call).with_context(|| format!("look up {name}"))?;
     let mut read = reply.read();

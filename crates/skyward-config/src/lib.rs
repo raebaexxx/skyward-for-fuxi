@@ -118,6 +118,13 @@ pub struct Wlan {
     pub interface: String,
     /// The phone's own wpa_supplicant.
     pub supplicant: String,
+    /// The service directory the vendor interface's own programs talk over,
+    /// which Android starts beside the one the rest of the system uses. An
+    /// Android 17 supplicant registers with it as an AIDL service before it
+    /// opens its control interface, and a recovery runs neither it nor the
+    /// driver it listens on.
+    #[serde(default)]
+    pub vendor_directory: Option<String>,
     /// Directories for its LD_LIBRARY_PATH, searched in order and before
     /// the libraries of the vendor interface the phone was built against.
     #[serde(default)]
@@ -597,6 +604,9 @@ impl DeviceConfig {
         }
         if let Some(wlan) = &cfg.wlan {
             ensure!(wlan.probe.starts_with("http://"), "[wlan] probe: {} is not a plain HTTP address", wlan.probe);
+            if let Some(program) = &wlan.vendor_directory {
+                ensure!(Path::new(program).is_absolute(), "[wlan] vendor_directory: {program} is not an absolute path");
+            }
             for file in &wlan.firmware {
                 let name = Path::new(&file.name);
                 let plain = name.components().all(|c| matches!(c, std::path::Component::Normal(_)));
@@ -1009,6 +1019,19 @@ mod tests {
         assert!(DeviceConfig::parse(&format!("{base}probe = \"http://connect.rom.miui.com/generate_204\"\n")).is_ok());
         assert!(DeviceConfig::parse(&format!("{base}probe = \"https://connect.rom.miui.com/generate_204\"\n")).is_err(), "a login cannot answer in its stead");
         assert!(DeviceConfig::parse(base).is_err(), "a WLAN says how it is probed");
+    }
+
+    #[test]
+    fn a_wlan_says_which_vendor_service_directory_its_supplicant_registers_with() {
+        let base = "[device]\ncodename = \"x\"\n[wlan]\nmodules = []\ninterface = \"wlan0\"\nsupplicant = \"/s\"\nservice = \"a/b\"\nprobe = \"http://p/\"\n";
+        assert!(DeviceConfig::parse(base).unwrap().wlan.unwrap().vendor_directory.is_none(), "a phone may have none");
+        assert!(DeviceConfig::parse(&format!("{base}vendor_directory = \"/vendor/bin/vndservicemanager\"\n")).is_ok());
+        assert!(
+            DeviceConfig::parse(&format!("{base}vendor_directory = \"vndservicemanager\"\n")).is_err(),
+            "it is run from an absolute path"
+        );
+        let cfg = DeviceConfig::parse(include_str!("../../../devices/fuxi.toml")).unwrap();
+        assert_eq!(cfg.wlan.unwrap().vendor_directory.as_deref(), Some("/vendor/bin/vndservicemanager"));
     }
 
     #[test]

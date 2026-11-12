@@ -12,6 +12,10 @@ const DEVICE: &str = "/dev/binder";
 /// and the node inside it.
 const HARDWARE: [&str; 2] = ["/dev/hwbinder", "/dev/binderfs/hwbinder"];
 
+/// The driver the vendor interface's own programs talk over, which Android
+/// starts beside the two others for the programs built for that interface.
+const VENDOR: [&str; 2] = ["/dev/vndbinder", "/dev/binderfs/vndbinder"];
+
 /// The layout this crate speaks. The driver refuses a program that knows a
 /// different one.
 const PROTOCOL: i32 = 8;
@@ -106,6 +110,18 @@ impl Binder {
             .map(Path::new)
             .find(|p| p.exists())
             .with_context(|| format!("none of {} is here, so no hardware service can be reached", HARDWARE.join(" or ")))?;
+        Binder::on(node)
+    }
+
+    /// The driver the vendor interface's own programs talk over, which is a
+    /// third one of the same kind. A recovery does not make the name those
+    /// programs ask for; the WLAN brings it on with the supplicant.
+    pub fn vendor() -> Result<Binder> {
+        let node = VENDOR
+            .iter()
+            .map(Path::new)
+            .find(|p| p.exists())
+            .with_context(|| format!("none of {} is here, so no vendor service can be reached", VENDOR.join(" or ")))?;
         Binder::on(node)
     }
 
