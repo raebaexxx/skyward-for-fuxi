@@ -28,6 +28,21 @@ pub(crate) struct Ink {
     pub cov: Vec<u8>,
 }
 
+impl Ink {
+    /// Whether the rasterizer drew the box around a glyph rather than the
+    /// glyph itself: nothing of its box is fully inked, and nearly all of
+    /// it is partly inked.
+    fn reversed(&self) -> bool {
+        let n = (self.w * self.h) as usize;
+        if n == 0 {
+            return false;
+        }
+        let full = self.cov.iter().filter(|&&v| v >= 250).count();
+        let mid = self.cov.iter().filter(|&&v| (60..250).contains(&v)).count();
+        full == 0 && mid * 10 > n * 9
+    }
+}
+
 /// Glyphs are drawn this many positions to a pixel each way, and their
 /// ink kept for each.
 pub(crate) const SUBPIXELS: f32 = 4.0;
@@ -74,19 +89,39 @@ impl Face {
             return ink.clone();
         }
         let at = ab_glyph::point(qx as f32 / SUBPIXELS, qy as f32 / SUBPIXELS);
-        let ink = self.font.outline_glyph(id.with_scale_and_position(scale, at)).map(|og| {
-            let b = og.px_bounds();
-            let (w, h) = (b.width() as u32, b.height() as u32);
-            let mut cov = vec![0u8; (w * h) as usize];
-            og.draw(|gx, gy, c| cov[(gy * w + gx) as usize] = (c.clamp(0.0, 1.0) * 255.0).round() as u8);
-            Rc::new(Ink { x: b.min.x as i32, y: b.min.y as i32, w, h, cov })
-        });
+        let mut ink = self.outline_ink(id, scale, at).map(Rc::new);
+        // A few glyphs come out of the rasterizer reversed at half a pixel
+        // right: it fills the box around the strokes instead of them. Such
+        // a glyph is drawn a quarter of a pixel either way instead, which
+        // at these sizes cannot be told apart.
+        if ink.as_deref().is_some_and(Ink::reversed) {
+            let near = match qx {
+                2 => 1,
+                q => (q + 1) % 4,
+            };
+            let at = ab_glyph::point(near as f32 / SUBPIXELS, qy as f32 / SUBPIXELS);
+            if let Some(better) = self.outline_ink(id, scale, at).map(Rc::new) {
+                if !better.reversed() {
+                    ink = Some(better);
+                }
+            }
+        }
         let mut known = self.known.borrow_mut();
         if known.glyphs.len() >= GLYPHS_KEPT {
             known.glyphs.clear();
         }
         known.glyphs.insert(key, ink.clone());
         ink
+    }
+
+    /// The coverage of glyph `id` outlined at `at`.
+    fn outline_ink(&self, id: GlyphId, scale: PxScale, at: ab_glyph::Point) -> Option<Ink> {
+        let og = self.font.outline_glyph(id.with_scale_and_position(scale, at))?;
+        let b = og.px_bounds();
+        let (w, h) = (b.width() as u32, b.height() as u32);
+        let mut cov = vec![0u8; (w * h) as usize];
+        og.draw(|gx, gy, c| cov[(gy * w + gx) as usize] = (c.clamp(0.0, 1.0) * 255.0).round() as u8);
+        Some(Ink { x: b.min.x as i32, y: b.min.y as i32, w, h, cov })
     }
 
     /// ab_glyph scales by ascent-minus-descent; the UI sizes text by the em,
@@ -317,5 +352,16 @@ mod tests {
         let (top, bottom) = f.heading.line(em);
         assert!((ink_bottom - ink_top - 47.0).abs() <= 2.0, "ink {ink_top}..{ink_bottom}");
         assert!((bottom - top - 69.0).abs() <= 2.0, "line {top}..{bottom}");
+    }
+
+    #[test]
+    fn a_glyph_the_rasterizer_draws_reversed_at_half_a_pixel_is_drawn_again() {
+        // The 13's wordmark, 2.625 px a dp: the y falls on half a pixel
+        // right, where this build of ab_glyph fills the box around it.
+        let f = bundled();
+        let scale = f.display.scale(37.8 * 420.0 / 160.0);
+        let id = f.display.font.glyph_id('y');
+        let ink = f.display.ink_of(id, scale, 2, 2).expect("the y has an outline");
+        assert!(!ink.reversed(), "the y is drawn as itself, not as the box around it");
     }
 }
