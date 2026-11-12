@@ -27,6 +27,13 @@ pub const BUILDER: Option<&str> = match option_env!("SKYWARD_BUILDER") {
     None => Some("RaeBaeXXX"),
 };
 
+/// Whether this build names a release of its own. The workflow sets
+/// `SKYWARD_VERSION` for a release and leaves it unset for a build made to
+/// try something, which carries the crates' own version instead; against
+/// that version the newest release reads as newer, and the page would offer
+/// to go back to it.
+pub const RELEASED: bool = option_env!("SKYWARD_VERSION").is_some();
+
 const CPU: &str = "/sys/devices/system/cpu";
 const POWER_SUPPLY: &str = "/sys/class/power_supply";
 const SYS_BLOCK: &str = "/sys/class/block";
