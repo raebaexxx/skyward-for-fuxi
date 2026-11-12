@@ -19,3 +19,5 @@ notes/
 # Build outputs the packer writes
 stock/
 out/
+preview-out/
+*.part
