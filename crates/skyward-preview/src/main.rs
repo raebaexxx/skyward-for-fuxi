@@ -142,7 +142,7 @@ fn main() -> Result<()> {
         eprintln!("axis {tag}: {min}..{max} (default {def})");
     }
 
-    let cfg = DeviceConfig::load(root.join("devices/nezha.toml"))?;
+    let cfg = DeviceConfig::load(root.join("devices/fuxi.toml"))?;
     let (w, h) = (cfg.display.width, cfg.display.height);
     let ppd = cfg.display.density as f32 / 160.0;
     let light = Theme::light(w, h, ppd);
@@ -161,7 +161,7 @@ fn main() -> Result<()> {
         _ => {}
     }
 
-    let info = nezha(&cfg);
+    let info = fuxi(&cfg);
     let pending = DeviceInfo { snapshot: SnapshotState::Snapshotted, ..info.clone() };
     let pattern = Data::Locked { user: 0, keys: Keys::Pattern, checking: false };
     // Whole pages, the way a long screenshot shows them. The About page's
@@ -1531,29 +1531,29 @@ fn whole_page(app: &mut App, f: &Fonts, info: &DeviceInfo) -> Canvas {
 
 /// Xiaomi 17 Ultra by Leica as `skyward info` read it on 2026-10-18 (the
 /// config supplies the SoC name, panel and screen size).
-fn nezha(cfg: &DeviceConfig) -> DeviceInfo {
+fn fuxi(cfg: &DeviceConfig) -> DeviceInfo {
     DeviceInfo {
-        model: "Xiaomi 17 Ultra by Leica".into(),
+        model: "Xiaomi 13".into(),
         codename: cfg.device.codename.clone(),
         soc: cfg.device.soc.clone(),
-        cpu: Cpu { cores: 8, max_khz: Some(4_608_000) },
-        ram_kib: 15_472_464,
+        cpu: Cpu { cores: 8, max_khz: Some(3_190_000) },
+        ram_kib: 11_534_336,
         panel: Some((cfg.display.width, cfg.display.height)),
         screen: cfg.display.diagonal,
-        os_version: Some("OS4.0.4.0.XPACNXM".into()),
+        os_version: Some("crDroid 17.0".into()),
         android: Some("17".into()),
         locale: Some("zh-CN".into()),
-        security_patch: Some(PatchLevel { year: 2026, month: 10, day: 1 }),
+        security_patch: Some(PatchLevel { year: 2026, month: 11, day: 1 }),
         kernel: "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k".into(),
-        storage: Storage { total: 1_039_535_157_248, free: Some(620_652_802_048) },
+        storage: Storage { total: 510_027_597_824, free: Some(260_000_000_000) },
         battery: Some(Battery {
             level: 95,
             charge: Charge::Charging,
             temp: Some(350),
             health: Some("Good".into()),
             cycles: Some(300),
-            design: Some(6_800_000),
-            full: Some(6_543_000),
+            design: Some(4_500_000),
+            full: Some(4_280_000),
             voltage: Some(4_442_000),
             // The recovery has no fast charging handshake with the charger.
             quick: false,

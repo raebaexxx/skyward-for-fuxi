@@ -8,6 +8,19 @@ use skyward_binder::{service, status};
 /// hardware wrapped.
 pub const SERVICE: &str = "android.hardware.security.keymint.IKeyMintDevice/default";
 
+/// The key store's service for phones whose key service is of an older kind
+/// than the one the recovery speaks: it hands out a key service of the newer
+/// kind built on whichever the phone keeps, and does the adapting that a key
+/// made by another build needs. The phone's own programs go through it, and
+/// so does the recovery's TWRP.
+pub const COMPAT: &str = "android.security.compat";
+
+const COMPAT_INTERFACE: &str = "android.security.compat.IKeystoreCompatService";
+
+/// The one method of that service this program asks for: a key service of
+/// the newer kind.
+const GET_KEY_MINT_DEVICE: u32 = 1;
+
 const DEVICE: &str = "android.hardware.security.keymint.IKeyMintDevice";
 const OPERATION: &str = "android.hardware.security.keymint.IKeyMintOperation";
 
@@ -186,12 +199,37 @@ pub struct KeyMint<'a> {
     device: Handle<'a>,
 }
 
+/// The level of trust to ask the key store's compatibility service for: the
+/// phone's own secure world.
+const TRUSTED_ENVIRONMENT: i32 = 1;
+
+/// Ask the service that hands out a key service of the newer kind for one,
+/// and take a share of it so that it outlives the reply that named it.
+fn device_of<'a>(binder: &'a Binder, compat: Handle<'_>) -> Result<Handle<'a>> {
+    let mut call = Parcel::call(COMPAT_INTERFACE);
+    call.i32(TRUSTED_ENVIRONMENT);
+    let reply = compat.transact(GET_KEY_MINT_DEVICE, &call).context("ask the phone's key store for a key service")?;
+    let mut read = reply.read();
+    status::ok(&mut read).context("ask the phone's key store for a key service")?;
+    match read.object().context("read the key service it named")? {
+        Some(h) => Handle::hold(binder, h).context("hold the key service open"),
+        None => anyhow::bail!("the phone's key store named no key service"),
+    }
+}
+
 impl<'a> KeyMint<'a> {
     /// Reach the running key service, or say that none is.
     pub fn open(binder: &'a Binder) -> Result<KeyMint<'a>> {
-        let device = service::find(binder, SERVICE)?
-            .with_context(|| format!("{SERVICE} is not running; the phone's key service has to be started first"))?;
-        Ok(KeyMint { device })
+        if let Some(device) = service::find(binder, SERVICE)? {
+            return Ok(KeyMint { device });
+        }
+        // A phone whose own system has only a key service of an older kind
+        // has no service under that name: its key store offers one of the
+        // newer kind instead, built on the older one, and hands it out to
+        // whoever asks.
+        let compat = service::find(binder, COMPAT)?
+            .with_context(|| format!("{SERVICE} is not running and {COMPAT} does not offer one either; the phone's key service has to be started first"))?;
+        Ok(KeyMint { device: device_of(binder, compat)? })
     }
 
     pub fn hardware(&self) -> Result<Hardware> {
@@ -223,7 +261,7 @@ impl<'a> KeyMint<'a> {
                 let renewed =
                     self.upgrade_retrying(key, |call| call.i32(0)).with_context(|| match key_generation(key) {
                         Some(gen) => format!(
-                            "renew the storage key for the firmware running now: it was made by key format generation {gen}, and this secure world cannot renew it"
+                            "renew the storage key for the firmware running now: it was made by key format generation {gen}, and this secure world cannot renew it -- name the build that made it in the configuration's build_release and build_patch"
                         ),
                         None => "renew the storage key for the firmware running now".to_string(),
                     })?;
@@ -306,7 +344,7 @@ impl<'a> KeyMint<'a> {
         }
         Err(anyhow::anyhow!("{}", said.join("; then "))).with_context(|| match key_generation(key_blob) {
             Some(gen) => format!(
-                "renew the key for the firmware running now: it was made by key format generation {gen}, and this secure world cannot renew it -- a system whose secure world is at least that new opens it"
+                "renew the key for the firmware running now: it was made by key format generation {gen}, and this secure world cannot renew it -- name the build that made it in the configuration's build_release and build_patch, and the recovery speaks for that build"
             ),
             None => "renew the key for the firmware running now".to_string(),
         })

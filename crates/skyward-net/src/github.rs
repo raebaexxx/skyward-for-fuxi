@@ -4,8 +4,10 @@
 use anyhow::{bail, ensure, Context, Result};
 use serde::Deserialize;
 
-/// Where GitHub answers which release of Skyward is the newest.
-pub const LATEST: &str = "https://api.github.com/repos/kirklin/skyward/releases/latest";
+/// Where GitHub answers which release of Skyward is the newest: this fork's
+/// own, so that a build of this fork updates to itself rather than to
+/// upstream's, which has no image for this phone.
+pub const LATEST: &str = "https://api.github.com/repos/raebaexxx/skyward-for-fuxi/releases/latest";
 
 /// The version of GitHub's API the answer is read as.
 const API_VERSION: &str = "2022-11-28";
@@ -69,19 +71,44 @@ struct Message {
     message: String,
 }
 
+/// A version as a release names it: `1.5` is 1.5.0, because the semver crate
+/// wants all three parts and this fork's tags carry two.
+fn version_of(text: &str) -> Result<semver::Version> {
+    let padded = match text.matches('.').count() {
+        0 => format!("{text}.0.0"),
+        1 => format!("{text}.0"),
+        _ => text.to_string(),
+    };
+    semver::Version::parse(&padded).with_context(|| format!("{text} is not a version"))
+}
+
 /// The newest release that `answer`, GitHub's answer at [`LATEST`], tells
 /// of, and its zip for the phone `codename` names, as the build of version
 /// `running` sees it.
 pub fn newest(answer: &str, codename: &str, running: &str) -> Result<Newest> {
     let release: Release = serde_json::from_str(answer).context("read GitHub's answer")?;
     let tag = release.tag_name;
-    let version = tag.strip_prefix('v').with_context(|| format!("the newest release is tagged {tag}, which is not v and a version"))?;
-    let newest = semver::Version::parse(version).with_context(|| format!("the newest release is tagged {tag}"))?;
-    let this = semver::Version::parse(running).with_context(|| format!("this build's version is {running}"))?;
-    // Each zip is named skyward-, the tag, the phone's codename, and the
-    // stock build the image is made on.
-    let start = format!("skyward-{tag}-{codename}-");
-    let build = match release.assets.into_iter().find(|a| a.name.starts_with(&start) && a.name.ends_with(".zip")) {
+    // This fork tags its releases with the phone's name in front,
+    // `fuxi-v1.5`; upstream tags `v0.1.4`. The version is what follows the
+    // v either way.
+    let version = match tag.rsplit_once("-v") {
+        Some((_, version)) => version,
+        None => tag.strip_prefix('v').with_context(|| format!("the newest release is tagged {tag}, which is not v and a version"))?,
+    };
+    let newest = version_of(version).with_context(|| format!("the newest release is tagged {tag}"))?;
+    let this = version_of(running).with_context(|| format!("this build's version is {running}"))?;
+    // Upstream names each zip skyward-, the tag, the phone's codename, and the
+    // stock build; this fork names it skyward-, the tag — which carries the
+    // codename already — and the stock build, or with no stock build at all.
+    let prefixed = format!("skyward-{tag}-{codename}-");
+    let tagged = format!("skyward-{tag}-");
+    let exact = format!("skyward-{tag}.zip");
+    let named_in_tag = tag.split('-').any(|part| part == codename);
+    let found = release.assets.into_iter().find(|a| {
+        a.name.ends_with(".zip")
+            && (a.name.starts_with(&prefixed) || (named_in_tag && (a.name == exact || a.name.starts_with(&tagged))))
+    });
+    let build = match found {
         None => None,
         Some(a) => {
             let sha256 = a.digest.as_deref().and_then(|d| d.strip_prefix("sha256:")).with_context(|| format!("GitHub gives no SHA-256 of {}", a.name))?;
@@ -169,6 +196,50 @@ mod tests {
         assert_eq!(newest(ANSWERED_013, "nezha", "0.1.2").unwrap().build.unwrap().size, 43145196);
     }
 
+    /// What GitHub answers of this fork's newest release, the v1.5 that is
+    /// out now, with the parts that do not matter here left out.
+    const ANSWERED_NUWA_15: &str = r#"{"tag_name":"nuwa-v1.5","assets":[{"url":"https://api.github.com/repos/pubglite55/skyward-for-nuwa/releases/assets/1","name":"SHA256SUMS.txt","size":108,"digest":null,"browser_download_url":"https://github.com/pubglite55/skyward-for-nuwa/releases/download/nuwa-v1.5/SHA256SUMS.txt"},{"url":"https://api.github.com/repos/pubglite55/skyward-for-nuwa/releases/assets/2","name":"skyward-nuwa-v1.5-OS3.0.312.0.WMBCNXM.zip","size":43348321,"digest":"sha256:85f67fb4a699492398e8fe69a76f0388de39338a44f8e6ed078bfef1f4d56b0f","browser_download_url":"https://github.com/pubglite55/skyward-for-nuwa/releases/download/nuwa-v1.5/skyward-nuwa-v1.5-OS3.0.312.0.WMBCNXM.zip"}]}"#;
+
+    /// This fork's tags carry the phone's name in front, and its zips are
+    /// named with that tag rather than with the codename after it.
+    #[test]
+    fn this_forks_release_is_read_by_its_own_tag_and_name() {
+        let n = newest(ANSWERED_NUWA_15, "nuwa", "1.4").unwrap();
+        assert_eq!(n.version, "1.5", "the version is what follows nuwa-v");
+        assert!(n.newer);
+        let build = n.build.expect("the release holds this phone's zip");
+        assert_eq!(build.name, "skyward-nuwa-v1.5-OS3.0.312.0.WMBCNXM.zip");
+        assert_eq!(build.sha256, "85f67fb4a699492398e8fe69a76f0388de39338a44f8e6ed078bfef1f4d56b0f");
+        assert_eq!(build.size, 43348321);
+    }
+
+    #[test]
+    fn a_build_of_the_newest_release_is_not_newer_than_itself() {
+        assert!(!newest(ANSWERED_NUWA_15, "nuwa", "1.5").unwrap().newer);
+        assert!(!newest(ANSWERED_NUWA_15, "nuwa", "1.10").unwrap().newer, "1.10 comes after 1.5");
+        assert!(newest(ANSWERED_NUWA_15, "nuwa", "1.4").unwrap().newer);
+    }
+
+    #[test]
+    fn another_phones_build_is_not_taken_from_this_forks_release() {
+        assert_eq!(newest(ANSWERED_NUWA_15, "ishtar", "1.0").unwrap().build, None);
+    }
+
+    /// What GitHub answers of fuxi's newest release, whose zip carries the
+    /// tag and no stock build.
+    const ANSWERED_FUXI_14: &str = r#"{"tag_name":"fuxi-v1.4","assets":[{"url":"https://api.github.com/repos/raebaexxx/skyward-for-fuxi/releases/assets/1","name":"SHA256SUMS.txt","size":108,"digest":null,"browser_download_url":"https://github.com/raebaexxx/skyward-for-fuxi/releases/download/fuxi-v1.4/SHA256SUMS.txt"},{"url":"https://api.github.com/repos/raebaexxx/skyward-for-fuxi/releases/assets/2","name":"skyward-fuxi-v1.4.zip","size":43348321,"digest":"sha256:85f67fb4a699492398e8fe69a76f0388de39338a44f8e6ed078bfef1f4d56b0f","browser_download_url":"https://github.com/raebaexxx/skyward-for-fuxi/releases/download/fuxi-v1.4/skyward-fuxi-v1.4.zip"}]}"#;
+
+    #[test]
+    fn this_forks_zip_is_read_by_its_tag_alone() {
+        let n = newest(ANSWERED_FUXI_14, "fuxi", "1.3").unwrap();
+        assert_eq!(n.version, "1.4", "the version is what follows fuxi-v");
+        assert!(n.newer);
+        let build = n.build.expect("the release holds this phone's zip");
+        assert_eq!(build.name, "skyward-fuxi-v1.4.zip");
+        assert!(!newest(ANSWERED_FUXI_14, "fuxi", "1.4").unwrap().newer, "a build of the release itself");
+        assert_eq!(newest(ANSWERED_FUXI_14, "nuwa", "1.0").unwrap().build, None, "another phone is not handed this zip");
+    }
+
     #[test]
     fn a_zip_is_downloaded_from_where_github_sends_it_then_from_its_link() {
         let build = newest(ANSWERED_013, "ishtar", "0.1.2").unwrap().build.unwrap();
@@ -218,7 +289,8 @@ mod tests {
         assert!(!newest(ANSWERED_013, "ishtar", "0.1.3").unwrap().newer, "the same version");
         assert!(!newest(ANSWERED_013, "ishtar", "0.2.0").unwrap().newer, "a build ahead of every release");
         assert!(newest(ANSWERED_013, "ishtar", "0.1.3-rc.1").unwrap().newer, "a build before the release it led to");
-        assert!(newest(ANSWERED_013, "ishtar", "0.1").is_err(), "a version this build cannot have");
+        assert!(newest(ANSWERED_013, "ishtar", "0.1").unwrap().newer, "a two-part version is read as 0.1.0, as this fork's tags name them");
+        assert!(newest(ANSWERED_013, "ishtar", "nightly").is_err(), "a version this build cannot have");
     }
 
     #[test]
