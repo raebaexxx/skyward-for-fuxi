@@ -51,13 +51,45 @@ fn key_generation(blob: &[u8]) -> Option<u32> {
 /// way the phone's own key broker does.
 static RENEWAL_VERSIONS: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
 
+/// The build the installed system itself reports, beside the one the
+/// configuration speaks for. The two are not always the same — a phone
+/// whose keys were made by a newer build keeps the newer one for the secure
+/// world and the older one in its own property files — and a key is refused
+/// as needing renewal by whichever is named in the operation.
+static INSTALLED_VERSIONS: std::sync::OnceLock<(u32, u32)> = std::sync::OnceLock::new();
+
 /// Tell the renewals which build the installed system is: a key made
 /// under an older build is renewed for the build running now.
 pub fn set_renewal_versions(version: u32, patch: u32) {
     let _ = RENEWAL_VERSIONS.set((version, patch));
 }
 
+/// Tell the operations which build the installed system itself reports,
+/// which the phone's keys may have been made under.
+pub fn set_installed_versions(version: u32, patch: u32) {
+    let _ = INSTALLED_VERSIONS.set((version, patch));
+}
+
+/// The builds an operation may name, in the order they are tried: the one
+/// the configuration speaks for, the one the installed system reports, and
+/// none at all. A key is refused as needing renewal when the build it was
+/// made under is older than the one the operation names, and the build the
+/// phone's own data was made under is not always the one either reports.
+fn builds_to_try() -> [Option<(u32, u32)>; 3] {
+    [RENEWAL_VERSIONS.get().copied(), INSTALLED_VERSIONS.get().copied(), None]
+}
+
+/// The build an operation named, as a phrase for a message about it.
+fn builds_named(os: Option<(u32, u32)>) -> String {
+    match os {
+        Some((version, patch)) => format!("{version} (patch {patch})"),
+        None => "the phone's own".to_string(),
+    }
+}
+
 const PURPOSE_DECRYPT: i32 = 1;
+const ALGORITHM_AES: i32 = 32;
+const KEY_BITS: i32 = 256;
 const BLOCK_MODE_GCM: i32 = 32;
 const PADDING_NONE: i32 = 1;
 
@@ -67,6 +99,8 @@ const TAG_PURPOSE: i32 = 536_870_913;
 const TAG_BLOCK_MODE: i32 = 536_870_916;
 const TAG_PADDING: i32 = 536_870_918;
 const TAG_MAC_LENGTH: i32 = 805_307_371;
+const TAG_ALGORITHM: i32 = 536_870_914;
+const TAG_KEY_SIZE: i32 = 805_306_371;
 const TAG_APPLICATION_ID: i32 = -1_879_047_591;
 const TAG_NONCE: i32 = -1_879_047_191;
 /// The build the key belongs to and its patch level, as the phone's own
@@ -75,6 +109,7 @@ const TAG_OS_VERSION: i32 = 805_307_073;
 const TAG_OS_PATCHLEVEL: i32 = 805_307_074;
 
 /// Which arm of a parameter's value is used.
+const VALUE_ALGORITHM: i32 = 1;
 const VALUE_PADDING_MODE: i32 = 3;
 const VALUE_KEY_PURPOSE: i32 = 7;
 const VALUE_INTEGER: i32 = 11;
@@ -245,27 +280,42 @@ impl<'a> KeyMint<'a> {
     /// something that looks like a key. A key guarded by a screen lock
     /// takes the note the secure world wrote when it was answered.
     pub fn gcm_decrypt(&self, key_blob: &[u8], app_id: &[u8], nonce: &[u8], body: &[u8], note: Option<&Token>) -> Result<Vec<u8>> {
-        let operation = match self.begin(key_blob, app_id, nonce, note) {
-            Ok(operation) => operation,
-            Err(e) if status::refused_with(&e) == Some(KEY_REQUIRES_UPGRADE) => {
-                // The phone's firmware has moved on since this key was
-                // made. Renewing it gives a key for the firmware running
-                // now; the one on disk is left as it is, so nothing of the
-                // phone's own is changed by reading it here.
-                let renewed = self
-                    .upgrade_retrying(key_blob, |call| Self::gcm_params(call, app_id, nonce))
-                    .with_context(|| match key_generation(key_blob) {
-                        Some(gen) => format!(
-                            "renew the key for the firmware running now: it was made by key format generation {gen}, and this secure world cannot renew it -- a system whose secure world is at least that new opens it"
-                        ),
-                        None => "renew the key for the firmware running now".to_string(),
-                    })?;
-                self.begin(&renewed, app_id, nonce, note)?
+        // The build named in an operation is what the secure world measures
+        // the key's own against, so each build the phone may have is named
+        // in turn before the key is taken to be too old.
+        for os in builds_to_try() {
+            match self.begin(key_blob, app_id, nonce, note, os) {
+                Ok(operation) => return self.run(&operation, body),
+                Err(e) if status::refused_with(&e) == Some(KEY_REQUIRES_UPGRADE) => {}
+                Err(e) => return Err(e).with_context(|| format!("with the build {} named", builds_named(os))),
             }
-            Err(e) => return Err(e),
-        };
-        let mut out = self.update(&operation, body)?;
-        out.extend_from_slice(&self.finish(&operation)?);
+        }
+        // No build leaves the key usable as it is: the phone's firmware has
+        // moved on since this key was made, and renewing it gives a key for
+        // the firmware running now. The one on disk is left as it is, so
+        // nothing of the phone's own is changed by reading it here.
+        let mut said = Vec::new();
+        for os in [builds_to_try()[0], None] {
+            match self.upgrade(key_blob, |call| Self::gcm_params(call, app_id, nonce, os)) {
+                Ok(renewed) => {
+                    let operation = self.begin(&renewed, app_id, nonce, note, os)?;
+                    return self.run(&operation, body);
+                }
+                Err(e) => said.push(format!("{e:#}")),
+            }
+        }
+        Err(anyhow::anyhow!("{}", said.join("; then "))).with_context(|| match key_generation(key_blob) {
+            Some(gen) => format!(
+                "renew the key for the firmware running now: it was made by key format generation {gen}, and this secure world cannot renew it -- a system whose secure world is at least that new opens it"
+            ),
+            None => "renew the key for the firmware running now".to_string(),
+        })
+    }
+
+    /// Read `body` out with an operation the service started.
+    fn run(&self, operation: &Handle, body: &[u8]) -> Result<Vec<u8>> {
+        let mut out = self.update(operation, body)?;
+        out.extend_from_slice(&self.finish(operation)?);
         Ok(out)
     }
 
@@ -278,8 +328,13 @@ impl<'a> KeyMint<'a> {
     /// with, and a binding to nothing named is not the same to it as none
     /// named at all, so naming an empty one leaves it unable to unwrap a
     /// key that was made bound to nothing.
-    fn gcm_params(call: &mut Parcel, app_id: &[u8], nonce: &[u8]) {
-        call.i32(if app_id.is_empty() { 5 } else { 6 });
+    fn gcm_params(call: &mut Parcel, app_id: &[u8], nonce: &[u8], os: Option<(u32, u32)>) {
+        call.i32(if app_id.is_empty() { 7 } else { 8 } + if os.is_some() { 2 } else { 0 });
+        // The key's algorithm and size are part of what an operation is
+        // checked against, as the phone's own vold gives them: a secure
+        // world that does not find them refuses the operation.
+        parameter(call, TAG_ALGORITHM, Value::Enum(VALUE_ALGORITHM, ALGORITHM_AES));
+        parameter(call, TAG_KEY_SIZE, Value::Integer(KEY_BITS));
         parameter(call, TAG_BLOCK_MODE, Value::Enum(VALUE_BLOCK_MODE, BLOCK_MODE_GCM));
         parameter(call, TAG_PADDING, Value::Enum(VALUE_PADDING_MODE, PADDING_NONE));
         parameter(call, TAG_MAC_LENGTH, Value::Integer(128));
@@ -288,14 +343,22 @@ impl<'a> KeyMint<'a> {
         }
         parameter(call, TAG_NONCE, Value::Blob(nonce));
         parameter(call, TAG_PURPOSE, Value::Enum(VALUE_KEY_PURPOSE, PURPOSE_DECRYPT));
+        // The build the operation is made under. The secure world measures
+        // a key's own build against it and refuses a key older than it
+        // until the key is renewed, so naming the wrong build closes the
+        // data partition on keys that are perfectly good.
+        if let Some((version, patch)) = os {
+            parameter(call, TAG_OS_VERSION, Value::Integer(version as i32));
+            parameter(call, TAG_OS_PATCHLEVEL, Value::Integer(patch as i32));
+        }
     }
 
     /// Open a decryption with the key service and keep hold of it.
-    fn begin(&self, key_blob: &[u8], app_id: &[u8], nonce: &[u8], note: Option<&Token>) -> Result<Handle<'a>> {
+    fn begin(&self, key_blob: &[u8], app_id: &[u8], nonce: &[u8], note: Option<&Token>, os: Option<(u32, u32)>) -> Result<Handle<'a>> {
         let mut call = Parcel::call(DEVICE);
         call.i32(PURPOSE_DECRYPT);
         call.blob(key_blob);
-        Self::gcm_params(&mut call, app_id, nonce);
+        Self::gcm_params(&mut call, app_id, nonce, os);
         // A key guarded by the screen lock takes the note the secure world
         // wrote when the user answered it; one that is not guarded takes
         // nothing, and is refused nothing for carrying a note either.
@@ -404,8 +467,14 @@ impl<'a> KeyMint<'a> {
     /// unwrap, as one made under another build or bound to something not
     /// given back to it is, apart from one that merely decrypts to nothing.
     pub fn usable(&self, key_blob: &[u8], app_id: &[u8]) -> Result<()> {
-        let operation = self.begin(key_blob, app_id, &[0; NONCE_BYTES], None)?;
-        self.abort(&operation)
+        let mut last = None;
+        for os in builds_to_try() {
+            match self.begin(key_blob, app_id, &[0; NONCE_BYTES], None, os) {
+                Ok(operation) => return self.abort(&operation),
+                Err(e) => last = Some(e),
+            }
+        }
+        Err(last.expect("a build was tried"))
     }
 }
 
