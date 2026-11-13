@@ -356,14 +356,14 @@ mod tests {
 
     #[test]
     fn each_value_is_kept_as_what_it_means() {
-        let state = State { screen_off: 3, time_zone: 1, backup: [true, false, false, true], ..State::default() };
+        let state = State { screen_off: 3, time_zone: 9, backup: [true, false, false, true], ..State::default() };
         let text = Settings::of(&state).text();
         let json: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert_eq!(json["screen_off"], 120, "two minutes, in seconds");
-        assert_eq!(json["time_zone"], "Asia/Hong_Kong");
+        assert_eq!(json["time_zone"], "Europe/Moscow");
         assert_eq!(json["backup"]["parts"], serde_json::json!(["boot", "modem"]));
         assert_eq!(json["logs"]["to"], "temporary");
-        assert_eq!(json["spoken"], "zh-Hans");
+        assert_eq!(json["spoken"], "ru");
         assert!(json.get("language").is_none(), "no language is chosen until one is");
         let never = Settings::of(&State { screen_off: SCREEN_OFF.len() - 1, ..State::default() });
         assert_eq!(never.screen_off, 0, "a screen that stays on");

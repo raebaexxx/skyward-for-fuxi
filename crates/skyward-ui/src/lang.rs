@@ -4,71 +4,55 @@ use icu_locale_core::Locale;
 /// A language the pages speak.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lang {
-    /// Chinese in simplified characters, as mainland China writes it.
-    Hans,
-    /// Chinese in traditional characters, as Taiwan writes it.
-    Hant,
     En,
+    /// Russian.
+    Ru,
 }
 
 /// One text written in each language, in the order of [`Lang::ALL`].
-pub type Text = [&'static str; 3];
+pub type Text = [&'static str; 2];
 
 impl Lang {
     /// The languages, in the order the language page lists them.
-    pub const ALL: [Lang; 3] = [Lang::Hans, Lang::Hant, Lang::En];
+    pub const ALL: [Lang; 2] = [Lang::En, Lang::Ru];
 
     /// The language's name, written in it.
     pub fn name(self) -> &'static str {
-        self.pick(["简体中文", "繁體中文", "English"])
+        self.pick(["English", "Русский"])
     }
 
     /// The language as a locale, which [`Lang::for_locale`] reads back.
     pub fn tag(self) -> &'static str {
-        self.pick(["zh-Hans", "zh-Hant", "en"])
+        self.pick(["en", "ru"])
     }
 
     /// Of the same thing written in each language, in the order of
     /// [`Lang::ALL`], the one in this language.
-    pub fn pick<T>(self, [hans, hant, en]: [T; 3]) -> T {
+    pub fn pick<T>(self, [en, ru]: [T; 2]) -> T {
         match self {
-            Lang::Hans => hans,
-            Lang::Hant => hant,
             Lang::En => en,
+            Lang::Ru => ru,
         }
     }
 
-    /// The language for a locale: the `zh-CN` a system is built to start
-    /// in, or the one it hands the recovery with the work it asks for,
-    /// which older systems write `zh_CN`. Chinese in that script or, with
-    /// none named, in the one Taiwan, Hong Kong and Macau write in
-    /// traditional characters, any other Chinese in simplified ones, and
-    /// every other language in English.
+    /// The language for a locale: Russian for a system built or asking in
+    /// Russian, and English for every other language.
     pub fn for_locale(tag: &str) -> Result<Lang> {
         // ICU takes a hyphen alone between the parts of a locale.
         let locale = Locale::try_from_str(&tag.replace('_', "-")).with_context(|| format!("read the locale {tag:?}"))?;
-        let id = locale.id;
-        if id.language.as_str() != "zh" {
-            return Ok(Lang::En);
-        }
-        let traditional = match id.script {
-            Some(script) => script.as_str() == "Hant",
-            None => id.region.is_some_and(|r| matches!(r.as_str(), "TW" | "HK" | "MO")),
-        };
-        Ok(if traditional { Lang::Hant } else { Lang::Hans })
+        Ok(if locale.id.language.as_str() == "ru" { Lang::Ru } else { Lang::En })
     }
 }
 
 /// A text written in each language, made as [`format!`] makes it of the
 /// values it names:
-/// `tr!(l, "挂载 {base} 失败", "掛載 {base} 失敗", "Couldn't mount {base}")`.
+/// `tr!(l, "Couldn't mount {base}", "Не удалось смонтировать {base}")`.
 #[macro_export]
 macro_rules! tr {
-    ($l:expr, $hans:literal, $hant:literal, $en:literal $(,)?) => {
+    ($l:expr, $en:literal, $ru:literal $(,)?) => {
         match $l {
-            $crate::lang::Lang::Hans => format!($hans),
-            $crate::lang::Lang::Hant => format!($hant),
             $crate::lang::Lang::En => format!($en),
+            $crate::lang::Lang::Ru => format!($ru),
         }
     };
 }
@@ -123,24 +107,20 @@ mod tests {
             let file = syn::parse_file(&fs::read_to_string(&path).unwrap()).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
             texts.visit_file(&file);
         }
-        assert!(texts.0.iter().any(|t| t.contains("簽章")), "the texts in traditional characters are read");
+        assert!(texts.0.iter().any(|t| t.contains("Расшифровка")), "the texts in Russian are read");
         let missing: BTreeSet<char> = texts.0.iter().flat_map(|t| t.chars()).filter(|&ch| !ch.is_control() && !f.body.has(ch)).collect();
         assert!(missing.is_empty(), "MiSans draws none of {missing:?}");
     }
 
     #[test]
-    fn a_locale_picks_the_language_and_its_characters() {
+    fn a_locale_picks_the_language() {
         let of = |tag| Lang::for_locale(tag).unwrap();
-        assert_eq!(of("zh-CN"), Lang::Hans, "a China system, as the 17 Ultra's");
-        assert_eq!(of("zh_CN"), Lang::Hans, "as older systems write it");
-        assert_eq!(of("zh-SG"), Lang::Hans);
-        assert_eq!(of("zh"), Lang::Hans);
-        assert_eq!(of("zh-TW"), Lang::Hant);
-        assert_eq!(of("zh-HK"), Lang::Hant);
-        assert_eq!(of("zh-Hant-TW"), Lang::Hant);
-        assert_eq!(of("zh-Hans-HK"), Lang::Hans, "a script named wins over the region");
+        assert_eq!(of("ru-RU"), Lang::Ru);
+        assert_eq!(of("ru_RU"), Lang::Ru, "as older systems write it");
+        assert_eq!(of("ru"), Lang::Ru);
         assert_eq!(of("en-US"), Lang::En);
-        assert_eq!(of("ja-JP"), Lang::En, "a language the pages do not speak");
+        assert_eq!(of("zh-CN"), Lang::En, "a language the pages do not speak");
+        assert_eq!(of("ja-JP"), Lang::En);
         assert!(Lang::for_locale("not a locale").is_err());
     }
 
@@ -153,9 +133,10 @@ mod tests {
 
     #[test]
     fn a_text_is_picked_and_made_in_the_language() {
-        assert_eq!(Lang::Hant.pick(["设置", "設定", "Settings"]), "設定");
+        assert_eq!(Lang::Ru.pick(["Settings", "Настройки"]), "Настройки");
         let base = "vendor";
-        assert_eq!(tr!(Lang::En, "挂载 {base} 失败", "掛載 {base} 失敗", "Couldn't mount {base}"), "Couldn't mount vendor");
-        assert_eq!(Lang::ALL.map(Lang::name), ["简体中文", "繁體中文", "English"]);
+        assert_eq!(tr!(Lang::En, "Couldn't mount {base}", "Не удалось смонтировать {base}"), "Couldn't mount vendor");
+        assert_eq!(tr!(Lang::Ru, "Couldn't mount {base}", "Не удалось смонтировать {base}"), "Не удалось смонтировать vendor");
+        assert_eq!(Lang::ALL.map(Lang::name), ["English", "Русский"]);
     }
 }

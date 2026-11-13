@@ -7,8 +7,8 @@ pub struct Entry {
     /// Where it lives, shown under the title.
     pub place: Text,
     pub screen: Screen,
-    /// What it answers to besides its title: pinyin in full and by
-    /// initials, and English, since the keyboard types Latin letters.
+    /// What it answers to besides its title: English and Russian words the
+    /// keyboard types.
     pub keys: &'static [&'static str],
 }
 
@@ -18,106 +18,181 @@ const fn entry(title: Text, place: Text, screen: Screen, keys: &'static [&'stati
 
 /// A partition, named the same in every language.
 const fn partition(name: &'static str, place: Text, screen: Screen) -> Entry {
-    Entry { title: [name; 3], place, screen, keys: &[] }
+    Entry { title: [name; 2], place, screen, keys: &[] }
 }
 
-const HOME: Text = ["主页", "主頁", "Home"];
-const INSTALL: Text = ["安装", "安裝", "Install"];
-const ADVANCED: Text = ["高级", "進階", "Advanced"];
-const SETTINGS: Text = ["设置", "設定", "Settings"];
-const MOUNT: Text = ["挂载", "掛載", "Mount"];
+const HOME: Text = ["Home", "Главная"];
+const INSTALL: Text = ["Install", "Установка"];
+const ADVANCED: Text = ["Advanced", "Дополнительно"];
+const SETTINGS: Text = ["Settings", "Настройки"];
+const MOUNT: Text = ["Mount", "Монтирование"];
 
 pub const ENTRIES: &[Entry] = &[
-    entry(["WLAN", "Wi-Fi", "Wi-Fi"], HOME, Screen::Wlan, &["wuxianwangluo", "wxwl", "wangluo", "wl", "lianwang", "wifi", "wlan"]),
+    entry(["Wi-Fi", "Wi-Fi"], HOME, Screen::Wlan, &["wifi", "wlan", "вайфай", "вай-фай", "сеть", "сети"]),
     entry(
-        ["双系统", "雙系統", "Dual boot"],
+        ["Dual boot", "Вторая система"],
         HOME,
         Screen::Systems,
-        &["shuangxitong", "sxt", "qiehuanxitong", "qhxt", "duoxitong", "dxt", "dualboot", "multiboot", "linux"],
+        &["dual boot", "dualboot", "second system", "multiboot", "вторая система", "второй системы", "две системы"],
     ),
-    entry(INSTALL, HOME, Screen::Install, &["anzhuang", "az", "install", "shuaji", "sj"]),
-    entry(["从内部存储安装", "從內部儲存空間安裝", "Install from internal storage"], INSTALL, Screen::Install, &["congneibucunchuanzhuang", "cnbccaz", "neicun", "sdcard", "zip"]),
-    entry(["从 U 盘安装", "從 USB 隨身碟安裝", "Install from a USB drive"], INSTALL, Screen::Install, &["congupananzhuang", "cupaz", "upan", "usb", "otg"]),
-    entry(["通过电脑安装", "透過電腦安裝", "Install from a computer"], INSTALL, Screen::Install, &["tongguodiannaoanzhuang", "tgdnaz", "sideload", "adb"]),
-    entry(["备份", "備份", "Backup"], HOME, Screen::Backup, &["beifen", "bf", "backup"]),
-    entry(["恢复", "還原", "Restore"], HOME, Screen::Restore, &["huifu", "hf", "restore"]),
-    entry(MOUNT, HOME, Screen::Mount, &["guazai", "gz", "mount", "umount"]),
-    entry(["清除数据", "清除資料", "Wipe data"], HOME, Screen::Wipe, &["qingchushuju", "qcsj", "wipe", "format", "geshihua", "gsh"]),
-    entry(ADVANCED, HOME, Screen::Advanced, &["gaoji", "gj", "advanced"]),
-    entry(["文件管理", "檔案管理", "File manager"], ADVANCED, Screen::Files, &["wenjianguanli", "wjgl", "files", "file"]),
-    entry(["终端", "終端機", "Terminal"], ADVANCED, Screen::Terminal, &["zhongduan", "zd", "terminal", "shell"]),
+    entry(INSTALL, HOME, Screen::Install, &["install", "установка", "установить", "прошивка", "прошить"]),
     entry(
-        ["修复 SELinux 上下文", "修復 SELinux 上下文", "Fix SELinux contexts"],
+        ["Install from internal storage", "Установка из внутренней памяти"],
+        INSTALL,
+        Screen::Install,
+        &["internal storage", "sdcard", "zip", "внутренняя память", "внутренней памяти", "карта"],
+    ),
+    entry(
+        ["Install from a USB drive", "Установка с USB-накопителя"],
+        INSTALL,
+        Screen::Install,
+        &["usb", "otg", "drive", "флешка", "usb-накопитель", "накопителя"],
+    ),
+    entry(
+        ["Install from a computer", "Установка с компьютера"],
+        INSTALL,
+        Screen::Install,
+        &["computer", "sideload", "adb", "компьютер", "компьютера"],
+    ),
+    entry(["Backup", "Резервная копия"], HOME, Screen::Backup, &["backup", "резервная копия", "бэкап", "копия"]),
+    entry(["Restore", "Восстановить"], HOME, Screen::Restore, &["restore", "восстановить", "восстановление"]),
+    entry(MOUNT, HOME, Screen::Mount, &["mount", "umount", "монтирование", "смонтировать", "отмонтировать"]),
+    entry(
+        ["Wipe data", "Очистить данные"],
+        HOME,
+        Screen::Wipe,
+        &["wipe", "format", "очистить", "очистка", "данные", "формат"],
+    ),
+    entry(ADVANCED, HOME, Screen::Advanced, &["advanced", "дополнительно"]),
+    entry(
+        ["File manager", "Файловый менеджер"],
+        ADVANCED,
+        Screen::Files,
+        &["files", "file", "файлы", "файловый менеджер", "менеджер"],
+    ),
+    entry(["Terminal", "Терминал"], ADVANCED, Screen::Terminal, &["terminal", "shell", "терминал", "оболочка"]),
+    entry(
+        ["Fix SELinux contexts", "Исправить контексты SELinux"],
         ADVANCED,
         Screen::Relabel,
-        &["xiufuselinuxshangxiawen", "xfsxw", "xiufu", "xf", "shangxiawen", "context", "restorecon", "label"],
+        &["selinux", "context", "restorecon", "label", "контекст", "контексты"],
     ),
     entry(
-        ["文件系统", "檔案系統", "Filesystems"],
+        ["Filesystems", "Файловые системы"],
         ADVANCED,
         Screen::Filesystems,
-        &["wenjianxitong", "wjxt", "genghuan", "gh", "fsck", "filesystem", "f2fs", "ext4"],
+        &["filesystem", "fsck", "f2fs", "ext4", "файловая система", "файловые системы"],
     ),
-    entry(["导出日志", "匯出記錄", "Export logs"], ADVANCED, Screen::Logs, &["daochurizhi", "dcrz", "rizhi", "rz", "logs", "dmesg"]),
     entry(
-        ["系统更新", "系統更新", "System update"],
+        ["Export logs", "Экспорт журналов"],
+        ADVANCED,
+        Screen::Logs,
+        &["logs", "dmesg", "журнал", "журналы", "логи", "экспорт"],
+    ),
+    entry(
+        ["System update", "Обновление системы"],
         ADVANCED,
         Screen::Update,
-        &["xitonggengxin", "xtgx", "hebing", "hb", "xiazai", "xz", "wanzhenggengxinbao", "wzgxb", "update", "ota", "merge", "snapshot", "download"],
+        &["update", "ota", "merge", "snapshot", "download", "обновление", "объединить", "загрузка"],
     ),
-    entry(SETTINGS, HOME, Screen::Settings, &["shezhi", "sz", "settings"]),
-    entry(["深色模式", "深色模式", "Dark mode"], SETTINGS, Screen::Settings, &["shensemoshi", "ssms", "dark", "theme"]),
-    entry(["屏幕亮度", "螢幕亮度", "Screen brightness"], SETTINGS, Screen::Settings, &["pingmuliangdu", "pmld", "liangdu", "ld", "brightness"]),
-    entry(["息屏时间", "螢幕自動關閉", "Screen timeout"], SETTINGS, Screen::ScreenOff, &["xipingshijian", "xpsj", "timeout"]),
-    entry(["振动强度", "震動強度", "Vibration intensity"], SETTINGS, Screen::Settings, &["zhendongqiangdu", "zdqd", "qiangdu", "qd", "intensity", "strength"]),
-    entry(["触摸振动", "觸控震動", "Touch vibration"], SETTINGS, Screen::Settings, &["chumozhendong", "cmzd", "zhendong", "vibrate", "haptic"]),
-    entry(["文件传输", "檔案傳輸", "File transfer"], SETTINGS, Screen::Settings, &["wenjianchuanshu", "wjcs", "chuanshu", "mtp", "usb"]),
+    entry(SETTINGS, HOME, Screen::Settings, &["settings", "настройки"]),
+    entry(["Dark mode", "Тёмная тема"], SETTINGS, Screen::Settings, &["dark", "theme", "тёмная тема", "темная тема"]),
     entry(
-        ["无线传输", "無線傳輸", "Wireless transfer"],
+        ["Screen brightness", "Яркость экрана"],
+        SETTINGS,
+        Screen::Settings,
+        &["brightness", "яркость", "экрана"],
+    ),
+    entry(
+        ["Screen timeout", "Отключение экрана"],
+        SETTINGS,
+        Screen::ScreenOff,
+        &["timeout", "отключение", "экрана", "тайм-аут"],
+    ),
+    entry(
+        ["Vibration intensity", "Сила вибрации"],
+        SETTINGS,
+        Screen::Settings,
+        &["intensity", "strength", "вибрация", "сила", "интенсивность"],
+    ),
+    entry(
+        ["Touch vibration", "Вибрация при касании"],
+        SETTINGS,
+        Screen::Settings,
+        &["vibrate", "haptic", "вибрация", "касание"],
+    ),
+    entry(
+        ["File transfer", "Передача файлов"],
+        SETTINGS,
+        Screen::Settings,
+        &["mtp", "usb", "передача файлов", "передача"],
+    ),
+    entry(
+        ["Wireless transfer", "Беспроводная передача"],
         ADVANCED,
         Screen::Wireless,
-        &["wuxianchuanshu", "wxcs", "wireless", "http", "web"],
+        &["wireless", "http", "web", "беспроводная передача", "беспроводная"],
     ),
     entry(
-        ["网络下载", "網路下載", "Download by link"],
+        ["Download by link", "Загрузка по ссылке"],
         ADVANCED,
         Screen::Fetch,
-        &["wangluowangzhi", "lianjie", "download", "url", "https"],
+        &["download", "url", "https", "загрузка", "ссылка", "ссылка"],
     ),
     entry(
-        ["文件排序", "檔案排序", "File order"],
+        ["File order", "Сортировка файлов"],
         ADVANCED,
         Screen::Sort,
-        &["wenjianpaixu", "wjpx", "paixu", "px", "sort", "order"],
+        &["sort", "order", "сортировка", "порядок", "файлов"],
     ),
-    entry(["语言", "語言", "Language"], SETTINGS, Screen::Language, &["yuyan", "yy", "language", "fanti", "jianti", "english"]),
-    entry(["时区", "時區", "Time zone"], SETTINGS, Screen::TimeZone, &["shiqu", "sq", "timezone"]),
-    entry(["重启", "重新啟動", "Reboot"], HOME, Screen::Reboot, &["chongqi", "cq", "reboot", "fastboot", "bootloader", "edl", "guanji"]),
-    entry(["启动槽位", "啟動槽位", "Boot slot"], ["重启", "重新啟動", "Reboot"], Screen::Slot, &["qidongcaowei", "qdcw", "caowei", "cw", "slot"]),
-    entry(["关于本机", "關於手機", "About phone"], SETTINGS, Screen::About, &["guanyubenji", "gybj", "about", "banben", "version"]),
     entry(
-        ["Skyward 更新", "Skyward 更新", "Skyward update"],
+        ["Language", "Язык"],
+        SETTINGS,
+        Screen::Language,
+        &["language", "english", "russian", "язык", "русский", "английский"],
+    ),
+    entry(["Time zone", "Часовой пояс"], SETTINGS, Screen::TimeZone, &["timezone", "time zone", "часовой пояс", "время"]),
+    entry(
+        ["Reboot", "Перезагрузка"],
+        HOME,
+        Screen::Reboot,
+        &["reboot", "fastboot", "bootloader", "edl", "перезагрузка", "перезагрузить", "выключить"],
+    ),
+    entry(
+        ["Boot slot", "Загрузочный слот"],
+        ["Reboot", "Перезагрузка"],
+        Screen::Slot,
+        &["slot", "boot", "слот", "загрузочный"],
+    ),
+    entry(
+        ["About phone", "О телефоне"],
+        SETTINGS,
+        Screen::About,
+        &["about", "version", "о телефоне", "версия"],
+    ),
+    entry(
+        ["Skyward update", "Обновление Skyward"],
         SETTINGS,
         Screen::SkywardUpdate,
-        &["skywardgengxin", "skywardgx", "shengji", "xiazai", "update", "upgrade", "release", "github"],
+        &["skyward", "update", "upgrade", "release", "github", "обновление"],
     ),
     entry(
-        ["全部参数与信息", "全部規格與資訊", "All specs"],
-        ["设置 > 关于本机", "設定 > 關於手機", "Settings > About phone"],
+        ["All specs", "Все характеристики"],
+        ["Settings > About phone", "Настройки > О телефоне"],
         Screen::Specs,
-        &["quanbucanshuyuxinxi", "qbcsyxx", "canshu", "specs"],
+        &["specs", "характеристики", "параметры"],
     ),
     entry(
-        ["开源许可", "開放原始碼授權", "Open source licenses"],
-        ["设置 > 关于本机 > 全部参数与信息", "設定 > 關於手機 > 全部規格與資訊", "Settings > About phone > All specs"],
+        ["Open source licenses", "Лицензии открытого кода"],
+        ["Settings > About phone > All specs", "Настройки > О телефоне > Все характеристики"],
         Screen::License,
-        &["kaiyuanxuke", "kyxk", "license", "gpl"],
+        &["license", "gpl", "лицензии", "лицензия"],
     ),
     entry(
-        ["界面字体", "介面字型", "UI fonts"],
-        ["设置 > 关于本机 > 全部参数与信息", "設定 > 關於手機 > 全部規格與資訊", "Settings > About phone > All specs"],
+        ["UI fonts", "Шрифты интерфейса"],
+        ["Settings > About phone > All specs", "Настройки > О телефоне > Все характеристики"],
         Screen::FontLicense,
-        &["jiemianziti", "jmzt", "ziti", "font", "misans", "kirkmono", "dengkuan"],
+        &["font", "misans", "kirkmono", "шрифт", "шрифты"],
     ),
     partition("boot", INSTALL, Screen::Install),
     partition("init_boot", INSTALL, Screen::Install),
@@ -168,76 +243,72 @@ pub fn find_on(query: &str, l: Lang, offers: impl Fn(Screen) -> bool) -> Vec<&'s
 mod tests {
     use super::*;
 
-    fn titles(query: &str) -> Vec<&'static str> {
-        find(query, Lang::Hans).iter().map(|e| Lang::Hans.pick(e.title)).collect()
+    fn titles(query: &str, l: Lang) -> Vec<&'static str> {
+        find(query, l).iter().map(|e| l.pick(e.title)).collect()
     }
 
     #[test]
-    fn pinyin_initials_and_english_all_find_a_feature() {
-        assert_eq!(titles("bf"), ["备份"]);
-        assert_eq!(titles("beifen"), ["备份"]);
-        assert_eq!(titles("Backup"), ["备份"]);
-        assert_eq!(titles("xpsj"), ["息屏时间"]);
+    fn english_and_russian_words_find_a_feature() {
+        assert_eq!(titles("backup", Lang::En), ["Backup"]);
+        assert_eq!(titles("резервная", Lang::Ru), ["Резервная копия"]);
+        assert_eq!(titles("Backup", Lang::Ru), ["Резервная копия"], "the English key works in Russian too");
+        assert_eq!(titles("яркость", Lang::Ru), ["Яркость экрана"]);
+        assert_eq!(titles("brightness", Lang::Ru), ["Яркость экрана"]);
+        assert_eq!(titles("язык", Lang::Ru), ["Язык"]);
     }
 
     #[test]
     fn a_title_holding_the_query_comes_before_keys_that_do() {
-        // vendor_boot holds "boot" in its title; the reboot page only in a key.
-        let found = titles("boot");
-        assert_eq!(&found[..3], ["boot", "init_boot", "vendor_boot"]);
-        assert!(found.contains(&"重启"), "{found:?}");
+        let found = titles("boot", Lang::En);
+        assert_eq!(&found[..3], ["Dual boot", "Reboot", "Boot slot"], "a title holding the query comes first");
+        assert!(found.contains(&"vendor_boot"), "{found:?}");
+        assert!(found.contains(&"Reboot"), "{found:?}");
     }
 
     #[test]
-    fn chinese_titles_match_as_typed() {
-        assert_eq!(titles("挂载"), ["挂载"]);
-    }
-
-    #[test]
-    fn the_filesystem_page_is_found_by_what_it_does() {
-        assert_eq!(titles("wjxt"), ["文件系统"]);
-        assert_eq!(titles("fsck"), ["文件系统"]);
-        assert_eq!(titles("genghuan"), ["文件系统"]);
+    fn a_russian_title_matches_as_typed() {
+        assert_eq!(titles("монтирование", Lang::Ru), ["Монтирование"]);
+        assert_eq!(titles("файловые", Lang::Ru), ["Файловые системы"]);
     }
 
     #[test]
     fn the_wlan_is_found_where_the_phone_has_it() {
-        assert_eq!(titles("wifi"), ["WLAN"]);
-        assert_eq!(find_on("wlan", Lang::Hans, |_| true).iter().map(|e| e.title[0]).collect::<Vec<_>>(), ["WLAN"]);
-        assert!(find_on("wlan", Lang::Hans, |s| s != Screen::Wlan).is_empty());
-        assert_eq!(titles("xiazai"), ["系统更新", "Skyward 更新"]);
+        assert_eq!(titles("wifi", Lang::En), ["Wi-Fi"]);
+        assert_eq!(find_on("wlan", Lang::En, |_| true).iter().map(|e| e.title[0]).collect::<Vec<_>>(), ["Wi-Fi"]);
+        assert!(find_on("wlan", Lang::En, |s| s != Screen::Wlan).is_empty());
+        assert_eq!(titles("загрузка", Lang::Ru), ["Загрузка по ссылке", "Перезагрузка", "Обновление системы"]);
     }
 
     #[test]
     fn the_second_system_is_found_where_the_phone_can_hold_one() {
-        assert_eq!(titles("sxt"), ["双系统"]);
-        assert_eq!(titles("qiehuan"), ["双系统"]);
-        assert_eq!(find("dual", Lang::En).iter().map(|e| e.title[2]).collect::<Vec<_>>(), ["Dual boot"]);
-        assert!(find_on("shuangxitong", Lang::Hans, |s| s != Screen::Systems).is_empty());
+        assert_eq!(titles("dual", Lang::En), ["Dual boot"]);
+        assert_eq!(find("вторая", Lang::Ru).iter().map(|e| e.title[1]).collect::<Vec<_>>(), ["Вторая система"]);
+        assert!(find_on("multiboot", Lang::En, |s| s != Screen::Systems).is_empty());
+        assert!(find_on("вторая", Lang::Ru, |s| s != Screen::Systems).is_empty());
     }
 
     #[test]
     fn skyward_is_updated_from_its_own_page() {
-        assert_eq!(titles("skyward"), ["Skyward 更新"]);
-        assert_eq!(titles("gengxin"), ["系统更新", "Skyward 更新"]);
-        assert!(find_on("skyward", Lang::Hans, |s| s != Screen::SkywardUpdate).is_empty());
+        assert_eq!(titles("skyward", Lang::En), ["Skyward update"]);
+        assert_eq!(titles("обновление", Lang::Ru), ["Обновление системы", "Обновление Skyward"]);
+        assert!(find_on("skyward", Lang::En, |s| s != Screen::SkywardUpdate).is_empty());
     }
 
     #[test]
     fn a_title_is_found_in_the_language_the_pages_speak() {
-        let english = |query| find(query, Lang::En).iter().map(|e| e.title[2]).collect::<Vec<_>>();
+        let english = |query| find(query, Lang::En).iter().map(|e| e.title[0]).collect::<Vec<_>>();
         assert_eq!(english("brightness"), ["Screen brightness"]);
         assert_eq!(english("about"), ["About phone"]);
         assert_eq!(english("wi-fi"), ["Wi-Fi"]);
-        let traditional = find("設定", Lang::Hant);
-        assert_eq!(traditional.first().map(|e| e.title[1]), Some("設定"));
-        assert!(find("设置", Lang::Hant).is_empty(), "the simplified title belongs to the other script");
+        let russian = find("настройки", Lang::Ru);
+        assert_eq!(russian.first().map(|e| e.title[1]), Some("Настройки"));
+        assert!(find("Настройки", Lang::Ru).iter().all(|e| e.title[1] == "Настройки"), "the Russian title belongs to the Russian pages");
     }
 
     #[test]
     fn nothing_typed_finds_nothing() {
-        assert!(find("", Lang::Hans).is_empty());
-        assert!(find("   ", Lang::En).is_empty());
-        assert!(find("zzzz", Lang::Hant).is_empty());
+        assert!(find("", Lang::En).is_empty());
+        assert!(find("   ", Lang::Ru).is_empty());
+        assert!(find("zzzz", Lang::Ru).is_empty());
     }
 }

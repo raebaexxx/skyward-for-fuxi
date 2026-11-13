@@ -2,7 +2,7 @@
 
 # Skyward for fuxi
 
-English | [简体中文](README.zh-CN.md)
+English | [Русский](README.ru.md)
 
 Skyward is a recovery written in Rust, from scratch. This fork is dedicated to
 one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
@@ -31,7 +31,7 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 - WLAN
 - MTP file transfer, adb and fastbootd
 - Reboot to system, recovery, fastboot, bootloader or EDL, and switch slots
-- Light and dark themes; Simplified Chinese, Traditional Chinese and English
+- Light and dark themes; English and Russian
 
 ## Supported device
 
@@ -98,8 +98,8 @@ the computer:
 
 ```sh
 # SKYWARD_VERSION makes the build name the release it is for; a local build
-# without it uses the workspace version, 1.5.0.
-SKYWARD_VERSION=1.5 \
+# without it uses the workspace version, 1.6.0.
+SKYWARD_VERSION=1.6 \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release \
@@ -140,7 +140,7 @@ cargo ndk -t arm64-v8a --platform 30 clippy -p skyward -p skyward-install -p sky
 `skyward-preview` draws the pages on the computer, as PNG files, without a phone:
 each page whole, as a long screenshot shows it, in the states it can be in, and the
 screen at moments of touches and motion. `--lang` picks the language by a locale
-such as `en` or `zh-TW`:
+such as `en` or `ru`:
 
 ```sh
 cargo run --release -p skyward-preview -- target/preview --lang en

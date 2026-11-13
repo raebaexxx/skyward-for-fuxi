@@ -251,28 +251,28 @@ pub const USB_DRIVE: &str = "/mnt/usb";
 
 /// What a USB drive plugged in that cannot be read is said to be, and what
 /// is asked for while none is plugged in.
-pub const USB_DRIVE_UNREADABLE: Text = ["无法读取该 U 盘", "無法讀取這個 USB 隨身碟", "This USB drive can't be read"];
-pub const USB_DRIVE_WANTED: Text = ["请通过 OTG 连接 U 盘", "請透過 OTG 連接 USB 隨身碟", "Connect a USB drive through OTG"];
+pub const USB_DRIVE_UNREADABLE: Text = ["This USB drive can't be read", "Этот USB-накопитель не читается"];
+pub const USB_DRIVE_WANTED: Text = ["Connect a USB drive through OTG", "Подключите USB-накопитель через OTG"];
 
 /// The data partition's name, as the filesystem page lists it.
 pub const DATA_PARTITION: &str = "data";
 
 /// What work that needs the data partition is told while it is being
 /// opened.
-pub const DATA_OPENING: Text = ["正在打开 data 分区，请稍后再试", "正在開啟 data 分割區，請稍後再試", "Opening the data partition. Try again shortly"];
+pub const DATA_OPENING: Text = ["Opening the data partition. Try again shortly", "Открытие раздела data. Повторите попытку позже"];
 
 /// What an install is told while the last one has not ended.
-pub const INSTALL_UNFINISHED: Text = ["上一次安装尚未结束，请稍后再试", "上一次安裝尚未結束，請稍後再試", "The last install hasn't ended. Try again shortly"];
+pub const INSTALL_UNFINISHED: Text = ["The last install hasn't ended. Try again shortly", "Последняя установка не завершена. Повторите попытку чуть позже"];
 
 /// What work on the data partition is told once it has been erased whole.
-pub const DATA_ERASED: Text = ["data 分区已清除", "data 分割區已清除", "The data partition was wiped"];
+pub const DATA_ERASED: Text = ["The data partition was wiped", "Раздел data очищен"];
 
 /// What work on internal storage is told before the data partition is
 /// decrypted.
-pub const DECRYPT_FIRST: Text = ["请先完成「解密」", "請先完成「解密」", "Decrypt first"];
+pub const DECRYPT_FIRST: Text = ["Decrypt first", "Сначала расшифруйте"];
 
 /// What going back is told while work that can be stopped goes on.
-const WAIT_OR_STOP: Text = ["请等待完成或停止后再返回", "請等待完成或停止後再返回", "Wait for it to finish, or stop it, before going back"];
+const WAIT_OR_STOP: Text = ["Wait for it to finish, or stop it, before going back", "Дождитесь завершения или остановите процесс, прежде чем вернуться назад"];
 
 /// A password typed, which what is printed of it leaves out: the recovery
 /// prints each effect the pages ask for.
@@ -314,9 +314,9 @@ const SSID_MAX: usize = 32;
 fn refused(l: Lang, security: Security, password: &str) -> Option<&'static str> {
     match security {
         Security::Psk | Security::PskSae if !(8..=63).contains(&password.len()) => {
-            Some(l.pick(["请输入 8 到 63 位密码", "請輸入 8 到 63 個字元的密碼", "Enter a password of 8 to 63 characters"]))
+            Some(l.pick(["Enter a password of 8 to 63 characters", "Введите пароль длиной от 8 до 63 символов"]))
         }
-        _ if password.is_empty() => Some(l.pick(["请输入密码", "請輸入密碼", "Enter a password"])),
+        _ if password.is_empty() => Some(l.pick(["Enter a password", "Введите пароль"])),
         _ => None,
     }
 }
@@ -581,10 +581,10 @@ pub enum Switch {
 
 /// What a backup can take, in the order the backup page lists it.
 pub const BACKUP_PARTS: [Text; 4] = [
-    ["启动分区", "啟動分割區", "Boot partitions"],
-    ["系统分区", "系統分割區", "System partitions"],
-    ["data 分区", "data 分割區", "data partition"],
-    ["基带与 EFS", "基頻與 EFS", "Modem and EFS"],
+    ["Boot partitions", "Загрузочные разделы"],
+    ["System partitions", "Системные разделы"],
+    ["data partition", "Раздел data"],
+    ["Modem and EFS", "Модем и EFS"],
 ];
 
 /// A backup found in a place's Skyward/backups folder.
@@ -1220,10 +1220,10 @@ pub const TARGETS: [Target; 6] = [Target::System, Target::Recovery, Target::Fast
 /// Where the fastboot page goes, in the order it lists them: the volume
 /// keys move between them and the power key takes one.
 pub const FASTBOOT_CHOICES: [(Text, Action); 4] = [
-    (["重启到系统", "重新啟動到系統", "Reboot to system"], Action::RebootTo(Target::System)),
-    (["进入恢复模式", "進入復原模式", "Enter recovery"], Action::EnterRecovery),
-    (["重启到 Bootloader", "重新啟動到 Bootloader", "Reboot to bootloader"], Action::RebootTo(Target::Bootloader)),
-    (["关机", "關機", "Power off"], Action::RebootTo(Target::PowerOff)),
+    (["Reboot to system", "Перезагрузить в систему"], Action::RebootTo(Target::System)),
+    (["Enter recovery", "Войти в recovery"], Action::EnterRecovery),
+    (["Reboot to bootloader", "Перезагрузить в bootloader"], Action::RebootTo(Target::Bootloader)),
+    (["Power off", "Выключить"], Action::RebootTo(Target::PowerOff)),
 ];
 
 /// How far a computer has the USB port.
@@ -1251,17 +1251,36 @@ pub const SCREEN_OFF: [Option<u64>; 7] = [Some(15_000), Some(30_000), Some(60_00
 
 /// The time zones the clock and the times on the pages can keep, in the
 /// order their page lists them: the name, the cities it covers, and the
-/// zone's name in the tz database.
-pub const TIME_ZONES: [(Text, Text, &str); 9] = [
-    (["中国标准时间", "中國標準時間", "China Standard Time"], ["北京、上海", "北京、上海", "Beijing, Shanghai"], "Asia/Shanghai"),
-    (["香港时间", "香港時間", "Hong Kong Time"], ["香港", "香港", "Hong Kong"], "Asia/Hong_Kong"),
-    (["台北时间", "台北時間", "Taipei Time"], ["台北", "台北", "Taipei"], "Asia/Taipei"),
-    (["日本标准时间", "日本標準時間", "Japan Standard Time"], ["东京", "東京", "Tokyo"], "Asia/Tokyo"),
-    (["协调世界时", "世界標準時間", "Coordinated Universal Time"], ["UTC", "UTC", "UTC"], "UTC"),
-    (["英国时间", "英國時間", "British Time"], ["伦敦", "倫敦", "London"], "Europe/London"),
-    (["中欧时间", "中歐時間", "Central European Time"], ["柏林、巴黎", "柏林、巴黎", "Berlin, Paris"], "Europe/Berlin"),
-    (["美国东部时间", "美國東部時間", "Eastern Time"], ["纽约", "紐約", "New York"], "America/New_York"),
-    (["美国太平洋时间", "美國太平洋時間", "Pacific Time"], ["洛杉矶", "洛杉磯", "Los Angeles"], "America/Los_Angeles"),
+/// zone's name in the tz database. UTC comes first, then the zones from
+/// west to east, so a place is found by its offset.
+pub const TIME_ZONES: [(Text, Text, &str); 27] = [
+    (["Coordinated Universal Time", "Всемирное координированное время"], ["UTC", "UTC"], "UTC"),
+    (["Pacific Time", "Тихоокеанское время"], ["Los Angeles, San Francisco", "Лос-Анджелес, Сан-Франциско"], "America/Los_Angeles"),
+    (["Mountain Time", "Горное время"], ["Denver", "Денвер"], "America/Denver"),
+    (["Central Time", "Центральное время"], ["Chicago", "Чикаго"], "America/Chicago"),
+    (["Eastern Time", "Восточное время"], ["New York", "Нью-Йорк"], "America/New_York"),
+    (["Brasília Time", "Бразильское время"], ["São Paulo", "Сан-Паулу"], "America/Sao_Paulo"),
+    (["British Time", "Британское время"], ["London", "Лондон"], "Europe/London"),
+    (["Central European Time", "Центральноевропейское время"], ["Berlin, Paris", "Берлин, Париж"], "Europe/Berlin"),
+    (["Eastern European Time", "Восточноевропейское время"], ["Kyiv", "Киев"], "Europe/Kyiv"),
+    (["Moscow Time", "Московское время"], ["Moscow, Saint Petersburg", "Москва, Санкт-Петербург"], "Europe/Moscow"),
+    (["Turkey Time", "Турецкое время"], ["Istanbul", "Стамбул"], "Europe/Istanbul"),
+    (["Gulf Time", "Время Персидского залива"], ["Dubai", "Дубай"], "Asia/Dubai"),
+    (["Pakistan Time", "Пакистанское время"], ["Karachi", "Карачи"], "Asia/Karachi"),
+    (["Yekaterinburg Time", "Екатеринбургское время"], ["Yekaterinburg", "Екатеринбург"], "Asia/Yekaterinburg"),
+    (["India Time", "Индийское время"], ["New Delhi, Mumbai", "Нью-Дели, Мумбаи"], "Asia/Kolkata"),
+    (["Bangladesh Time", "Бангладешское время"], ["Dhaka", "Дакка"], "Asia/Dhaka"),
+    (["Indochina Time", "Индокитайское время"], ["Bangkok", "Бангкок"], "Asia/Bangkok"),
+    (["Novosibirsk Time", "Новосибирское время"], ["Novosibirsk", "Новосибирск"], "Asia/Novosibirsk"),
+    (["China Standard Time", "Китайское стандартное время"], ["Beijing, Shanghai", "Пекин, Шанхай"], "Asia/Shanghai"),
+    (["Hong Kong Time", "Гонконгское время"], ["Hong Kong", "Гонконг"], "Asia/Hong_Kong"),
+    (["Taipei Time", "Тайбэйское время"], ["Taipei", "Тайбэй"], "Asia/Taipei"),
+    (["Singapore Time", "Сингапурское время"], ["Singapore", "Сингапур"], "Asia/Singapore"),
+    (["Japan Standard Time", "Японское стандартное время"], ["Tokyo", "Токио"], "Asia/Tokyo"),
+    (["Korea Standard Time", "Корейское стандартное время"], ["Seoul", "Сеул"], "Asia/Seoul"),
+    (["Vladivostok Time", "Владивостокское время"], ["Vladivostok", "Владивосток"], "Asia/Vladivostok"),
+    (["Sydney Time", "Сиднейское время"], ["Sydney", "Сидней"], "Australia/Sydney"),
+    (["New Zealand Time", "Новозеландское время"], ["Auckland", "Окленд"], "Pacific/Auckland"),
 ];
 
 /// What a control does when touched.
@@ -1887,7 +1906,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         State {
-            lang: Lang::Hans,
+            lang: Lang::Ru,
             language_chosen: false,
             dark: false,
             brightness: SLIDER_START,
@@ -3523,7 +3542,7 @@ impl App {
     pub fn term_ended(&mut self, end: TermEnd) {
         let (l, term) = (self.state.lang, self.term.as_mut().expect("only a shell that started ends"));
         let how = fmt::term_end(l, &end);
-        term.feed(tr!(l, "\r\n[{how}。按「回车」重新启动]\r\n", "\r\n[{how}。按「Enter」重新啟動]\r\n", "\r\n[{how}. Press Enter to start it again]\r\n").as_bytes());
+        term.feed(tr!(l, "\r\n[{how}. Press Enter to start it again]\r\n", "\r\n[{how}. Нажмите Enter, чтобы запустить снова]\r\n").as_bytes());
         term.running = false;
         if self.screen() == Screen::Terminal {
             self.refresh();
@@ -3570,9 +3589,9 @@ impl App {
         let job = self.state.job.as_mut().expect("only work under way ends");
         job.stopping = false;
         let done = match (&end, &job.task) {
-            (JobEnd::Done, FileTask::Copy { .. }) => Some(["已复制", "已複製", "Copied"]),
-            (JobEnd::Done, FileTask::Move { .. }) => Some(["已移动", "已移動", "Moved"]),
-            (JobEnd::Done, FileTask::Delete { .. }) => Some(["已删除", "已刪除", "Deleted"]),
+            (JobEnd::Done, FileTask::Copy { .. }) => Some(["Copied", "Скопировано"]),
+            (JobEnd::Done, FileTask::Move { .. }) => Some(["Moved", "Перемещено"]),
+            (JobEnd::Done, FileTask::Delete { .. }) => Some(["Deleted", "Удалено"]),
             _ => None,
         };
         job.outcome = Some(end);
@@ -3894,7 +3913,7 @@ impl App {
                 self.state.file = None;
                 self.settle_page();
                 self.refresh();
-                self.say(self.state.lang.pick(["已重命名", "已重新命名", "Renamed"]), now);
+                self.say(self.state.lang.pick(["Renamed", "Переименовано"]), now);
             }
             Err(RenameRefused::Taken) => self.say_taken(now),
             Err(RenameRefused::Failed(why)) => self.report(&why, now),
@@ -3907,7 +3926,7 @@ impl App {
         let l = self.state.lang;
         let bits = match outcome {
             Ok(bits) => bits,
-            Err(why) => return self.report(&tr!(l, "修改权限失败：{why}", "修改權限失敗：{why}", "Couldn't change the permissions: {why}"), now),
+            Err(why) => return self.report(&tr!(l, "Couldn't change the permissions: {why}", "Не удалось изменить разрешения: {why}"), now),
         };
         let entry = self.state.file.as_mut().expect("the permissions page shows an entry");
         entry.mode = (entry.mode & !0o7777) | bits;
@@ -3918,7 +3937,7 @@ impl App {
             }
         }
         if bits != wanted {
-            self.say(l.pick(["该位置不支持修改权限", "這個位置不支援修改權限", "Permissions can't be changed here"]), now);
+            self.say(l.pick(["Permissions can't be changed here", "Здесь нельзя изменить разрешения"]), now);
         }
         self.refresh();
     }
@@ -3931,11 +3950,11 @@ impl App {
         let l = self.state.lang;
         let bytes = match read {
             Ok(Some(bytes)) => bytes,
-            Ok(None) => return self.say(l.pick(["暂不支持编辑超过 2 MB 的文件", "尚不支援編輯超過 2 MB 的檔案", "Files over 2 MB can't be edited"]), now),
-            Err(why) => return self.report(&tr!(l, "读取失败：{why}", "讀取失敗：{why}", "Couldn't read it: {why}"), now),
+            Ok(None) => return self.say(l.pick(["Files over 2 MB can't be edited", "Файлы размером более 2 MB нельзя редактировать"]), now),
+            Err(why) => return self.report(&tr!(l, "Couldn't read it: {why}", "Не удалось прочитать: {why}"), now),
         };
         let Some(text) = String::from_utf8(bytes).ok().filter(|text| !text.contains('\0')) else {
-            return self.say(l.pick(["仅支持编辑 UTF-8 编码的文本文件", "僅支援編輯 UTF-8 編碼的文字檔", "Only UTF-8 text files can be edited"]), now);
+            return self.say(l.pick(["Only UTF-8 text files can be edited", "Редактировать можно только текстовые файлы UTF-8"]), now);
         };
         let l = editor::layout(&self.theme(), f);
         self.state.editor = Some(Editor::new(path, &text, l.cols as usize, l.rows as usize));
@@ -3951,16 +3970,16 @@ impl App {
             Ok(()) => {
                 self.state.editor.as_mut().expect("the editor page shows a file").saved();
                 self.refresh();
-                self.say(self.state.lang.pick(["已保存", "已儲存", "Saved"]), now);
+                self.say(self.state.lang.pick(["Saved", "Сохранено"]), now);
             }
-            Err(why) => self.report(&tr!(self.state.lang, "保存失败：{why}", "儲存失敗：{why}", "Couldn't save it: {why}"), now),
+            Err(why) => self.report(&tr!(self.state.lang, "Couldn't save it: {why}", "Не удалось сохранить: {why}"), now),
         }
     }
 
     /// The name typed for an entry is another entry's in the folder.
     fn say_taken(&mut self, now: u64) {
         let name = &self.state.new_name;
-        let said = tr!(self.state.lang, "该文件夹中已有\"{name}\"", "這個資料夾中已有「{name}」", "This folder already has “{name}”");
+        let said = tr!(self.state.lang, "This folder already has “{name}”", "В этой папке уже есть «{name}»");
         self.say(&said, now);
     }
 
@@ -4046,10 +4065,10 @@ impl App {
                 self.state.next_slot = None;
                 self.state.boot_slots = Some(Ok(slots));
                 let slot = slots.active.letter();
-                self.say(&tr!(self.state.lang, "下次将从槽位 {slot} 启动", "下次將從槽位 {slot} 啟動", "Slot {slot} starts next"), now);
+                self.say(&tr!(self.state.lang, "Slot {slot} starts next", "Слот {slot} запустится следующим"), now);
                 self.refresh();
             }
-            Err(why) => self.say(&tr!(self.state.lang, "切换失败：{why}", "切換失敗：{why}", "Couldn't switch: {why}"), now),
+            Err(why) => self.say(&tr!(self.state.lang, "Couldn't switch: {why}", "Не удалось переключить: {why}"), now),
         }
     }
 
@@ -4066,8 +4085,8 @@ impl App {
     pub fn systems_work_failed(&mut self, why: &str, now: u64) {
         let l = self.state.lang;
         let said = match self.state.systems_work.take() {
-            Some(SystemsWork::Removing) => tr!(l, "删除失败：{why}", "刪除失敗：{why}", "Couldn't remove: {why}"),
-            _ => tr!(l, "切换失败：{why}", "切換失敗：{why}", "Couldn't switch: {why}"),
+            Some(SystemsWork::Removing) => tr!(l, "Couldn't remove: {why}", "Не удалось удалить: {why}"),
+            _ => tr!(l, "Couldn't switch: {why}", "Не удалось переключить: {why}"),
         };
         self.say(&said, now);
         self.refresh();
@@ -4148,11 +4167,11 @@ impl App {
                     self.settle_page();
                 }
                 self.refresh();
-                self.say(self.state.lang.pick(["已删除", "已刪除", "Deleted"]), now);
+                self.say(self.state.lang.pick(["Deleted", "Удалено"]), now);
                 vec![self.find_backups()]
             }
             Err(why) => {
-                self.report(&tr!(self.state.lang, "删除失败：{why}", "刪除失敗：{why}", "Couldn't delete it: {why}"), now);
+                self.report(&tr!(self.state.lang, "Couldn't delete it: {why}", "Не удалось удалить: {why}"), now);
                 Vec::new()
             }
         }
@@ -5072,7 +5091,7 @@ impl App {
             // being written, which nothing may cut short.
             Screen::Systems => {
                 if self.state.systems_work.is_some() {
-                    self.say(l.pick(["正在写入，请等待写入完成", "正在寫入，請等待寫入完成", "Writing. Wait for it to finish"]), now);
+                    self.say(l.pick(["Writing. Wait for it to finish", "Запись. Дождитесь завершения"]), now);
                     return fx;
                 }
                 self.state.system_pick = None;
@@ -5100,7 +5119,7 @@ impl App {
                 let changed = self.state.editor.as_ref().expect("the editor page shows a file").changed;
                 if changed && self.unsaved_warned.is_none_or(|at| now >= at + TOAST_MS) {
                     self.unsaved_warned = Some(now);
-                    self.say(l.pick(["修改尚未保存，再次返回将放弃修改", "修改尚未儲存，再次返回將捨棄修改", "Changes aren't saved. Go back again to discard them"]), now);
+                    self.say(l.pick(["Changes aren't saved. Go back again to discard them", "Изменения не сохранены. Вернитесь ещё раз, чтобы отменить их"]), now);
                     return fx;
                 }
                 self.state.editor = None;
@@ -5143,7 +5162,7 @@ impl App {
             // to it is chosen afresh.
             Screen::PartWork => {
                 if self.state.part_work.as_ref().is_some_and(|w| w.outcome.is_none()) {
-                    self.say(l.pick(["请等待完成后再返回", "請等待完成後再返回", "Wait for it to finish before going back"]), now);
+                    self.say(l.pick(["Wait for it to finish before going back", "Дождитесь завершения, прежде чем вернуться назад"]), now);
                     return fx;
                 }
                 self.state.part_work = None;
@@ -5157,7 +5176,7 @@ impl App {
             // build is written at once, which nothing may cut short.
             Screen::SkywardUpdate => match self.state.skyward_job.as_ref().filter(|j| j.outcome.is_none()).map(|j| j.stage) {
                 Some(Some(SkywardStage::Write { .. })) => {
-                    self.say(l.pick(["正在写入，请等待写入完成", "正在寫入，請等待寫入完成", "Writing. Wait for it to finish"]), now);
+                    self.say(l.pick(["Writing. Wait for it to finish", "Запись. Дождитесь завершения"]), now);
                     return fx;
                 }
                 Some(_) => {
@@ -5171,7 +5190,7 @@ impl App {
                 let job = self.state.backup_job.as_ref().expect("the backup page shows work");
                 if job.outcome.is_none() {
                     let writing = job.restore && job.at.is_some_and(|a| !a.checking);
-                    let said = if writing { ["正在恢复，请等待恢复完成", "正在還原，請等待還原完成", "Restoring. Wait for it to finish"] } else { WAIT_OR_STOP };
+                    let said = if writing { ["Restoring. Wait for it to finish", "Идёт восстановление. Дождитесь завершения"] } else { WAIT_OR_STOP };
                     self.say(l.pick(said), now);
                     return fx;
                 }
@@ -5188,19 +5207,19 @@ impl App {
                     fx.push(Effect::Cancel);
                 }
                 Install::Checking { .. } => {
-                    self.say(l.pick(["正在读取文件，请稍后再试", "正在讀取檔案，請稍後再試", "Reading the file. Try again shortly"]), now);
+                    self.say(l.pick(["Reading the file. Try again shortly", "Чтение файла. Повторите попытку чуть позже"]), now);
                     return fx;
                 }
                 Install::Updating { .. } | Install::Scripting { .. } => {
-                    self.say(l.pick(["正在安装，请等待安装完成", "正在安裝，請等待安裝完成", "Installing. Wait for it to finish"]), now);
+                    self.say(l.pick(["Installing. Wait for it to finish", "Установка. Дождитесь завершения"]), now);
                     return fx;
                 }
                 Install::Flashing { .. } => {
-                    self.say(l.pick(["正在刷入，请等待刷入完成", "正在刷入，請等待刷入完成", "Flashing. Wait for it to finish"]), now);
+                    self.say(l.pick(["Flashing. Wait for it to finish", "Прошивка. Дождитесь завершения"]), now);
                     return fx;
                 }
                 Install::Systeming { .. } => {
-                    self.say(l.pick(["正在安装，请等待安装完成", "正在安裝，請等待安裝完成", "Installing. Wait for it to finish"]), now);
+                    self.say(l.pick(["Installing. Wait for it to finish", "Установка. Дождитесь завершения"]), now);
                     return fx;
                 }
                 Install::Opening => {
@@ -5208,7 +5227,7 @@ impl App {
                     return fx;
                 }
                 Install::Wiping => {
-                    self.say(l.pick(["正在清除，请等待清除完成", "正在清除，請等待清除完成", "Wiping. Wait for it to finish"]), now);
+                    self.say(l.pick(["Wiping. Wait for it to finish", "Очистка. Дождитесь завершения"]), now);
                     return fx;
                 }
                 Install::Starting
@@ -5502,7 +5521,7 @@ impl App {
                 }
                 self.refresh();
             }
-            Action::Confirm(_) => self.say(l.pick(["请按住圆形按钮向右滑动", "請按住圓形按鈕向右滑動", "Hold the round button and slide it right"]), now),
+            Action::Confirm(_) => self.say(l.pick(["Hold the round button and slide it right", "Удерживайте круглую кнопку и сдвиньте её вправо"]), now),
             Action::Slider(_) | Action::Pattern => {}
             Action::Sideload => match self.state.install {
                 Install::Idle | Install::Finished { .. } => {
@@ -5563,9 +5582,9 @@ impl App {
                 let (path, folder) = (std::path::Path::new(&clip.path), std::path::Path::new(&self.state.files.path));
                 let name = path.file_name().map_or_else(|| clip.path.clone(), |n| n.to_string_lossy().into_owned());
                 if folder.starts_with(path) {
-                    self.say(&tr!(l, "无法将\"{name}\"放入其自身中", "無法將「{name}」放入其本身中", "“{name}” can't go inside itself"), now);
+                    self.say(&tr!(l, "“{name}” can't go inside itself", "«{name}» нельзя переместить внутрь самой себя"), now);
                 } else if clip.op == FileOp::Move && path.parent() == Some(folder) {
-                    self.say(&tr!(l, "\"{name}\"已在该文件夹中", "「{name}」已在這個資料夾中", "“{name}” is already in this folder"), now);
+                    self.say(&tr!(l, "“{name}” is already in this folder", "«{name}» уже есть в этой папке"), now);
                 } else {
                     return vec![Effect::Paste { op: clip.op, path: clip.path, into: self.state.files.path.clone(), clash: None }];
                 }
@@ -5694,7 +5713,7 @@ impl App {
             Action::ExportLogs => {
                 let ([recovery, kernel], storage) = (self.state.logs, self.state.logs_to == 1);
                 if !recovery && !kernel {
-                    self.say(l.pick(["请选择要导出的日志", "請選擇要匯出的記錄", "Choose the logs to export"]), now);
+                    self.say(l.pick(["Choose the logs to export", "Выберите журналы для экспорта"]), now);
                 } else if storage && !self.state.data.storage_open() {
                     self.say(l.pick(DECRYPT_FIRST), now);
                 } else {
@@ -5802,9 +5821,12 @@ impl App {
                     return self.act(Action::OpenJoined, now);
                 }
                 match network.security {
-                    Security::Wep => self.say(l.pick(["暂不支持 WEP 加密的网络", "尚不支援 WEP 加密的網路", "WEP networks aren't supported"]), now),
+                    Security::Wep => self.say(l.pick(["WEP networks aren't supported", "Сети WEP не поддерживаются"]), now),
                     Security::Enterprise => {
-                        self.say(l.pick(["暂不支持需要账号登录的网络", "尚不支援需要帳號登入的網路", "Networks that need an account sign-in aren't supported"]), now)
+                        self.say(l.pick([
+                            "Networks that need an account sign-in aren't supported",
+                            "Сети, требующие входа в учётную запись, не поддерживаются",
+                        ]), now)
                     }
                     s if s.password() => self.ask_password(network),
                     _ => {
@@ -6168,7 +6190,7 @@ impl App {
                         return self.act(Action::Open(first.screen), now);
                     }
                 }
-                Screen::Decrypt if self.state.code.is_empty() => self.say(l.pick(["请输入锁屏密码", "請輸入螢幕鎖定密碼", "Enter the screen lock"]), now),
+                Screen::Decrypt if self.state.code.is_empty() => self.say(l.pick(["Enter the screen lock", "Введите код блокировки экрана"]), now),
                 Screen::Decrypt => {
                     let code = std::mem::take(&mut self.state.code);
                     return self.unlock(code);
@@ -6180,9 +6202,9 @@ impl App {
                     let current = &self.state.file.as_ref().expect("the file page shows an entry").name;
                     let taken = self.state.files.entries.as_ref().is_ok_and(|entries| entries.iter().any(|e| e.name == name));
                     match name.as_str() {
-                        "" => self.say(l.pick(["请输入名称", "請輸入名稱", "Enter a name"]), now),
-                        "." | ".." => self.say(l.pick(["名称不能为\".\"或\"..\"", "名稱不能是「.」或「..」", "A name can't be “.” or “..”"]), now),
-                        _ if name.contains('/') => self.say(l.pick(["名称不能包含\"/\"", "名稱不能包含「/」", "A name can't hold “/”"]), now),
+                        "" => self.say(l.pick(["Enter a name", "Введите имя"]), now),
+                        "." | ".." => self.say(l.pick(["A name can't be “.” or “..”", "Имя не может быть «.» или «..»"]), now),
+                        _ if name.contains('/') => self.say(l.pick(["A name can't hold “/”", "Имя не может содержать «/»"]), now),
                         _ if name == *current => return self.back(now),
                         _ if taken => self.say_taken(now),
                         _ => return vec![Effect::Rename { path: self.entry_path(), name }],
@@ -6194,14 +6216,14 @@ impl App {
                 Screen::Fetch => {
                     let url = self.state.fetch_url.trim().to_string();
                     if url.is_empty() {
-                        self.say(l.pick(["请输入网址", "請輸入網址", "Enter an address"]), now);
+                        self.say(l.pick(["Enter an address", "Введите адрес"]), now);
                     } else if !(url.starts_with("http://") || url.starts_with("https://")) {
                         self.say(
-                            l.pick(["网址需以 http:// 或 https:// 开头", "網址需以 http:// 或 https:// 開頭", "An address starts with http:// or https://"]),
+                            l.pick(["An address starts with http:// or https://", "Адрес начинается с http:// или https://"]),
                             now,
                         );
                     } else if matches!(self.state.fetch, Fetch::Running { .. }) {
-                        self.say(l.pick(["正在下载，请先停止", "正在下載，請先停止", "A download is under way. Stop it first."]), now);
+                        self.say(l.pick(["A download is under way. Stop it first.", "Загрузка уже идёт. Сначала остановите её."]), now);
                     } else {
                         let name = skyward_net::download::name_from(&url);
                         self.state.fetch = Fetch::Running { name: name.clone(), done: 0, total: 0, rate: 0 };
@@ -6229,10 +6251,14 @@ impl App {
                 Screen::WlanAdd => {
                     let a = self.state.adding.as_mut().expect("the page adds a network");
                     let (field, why) = match a.name.len() {
-                        0 => (Field::Name, Some(l.pick(["请输入网络名称", "請輸入網路名稱", "Enter the network's name"]).to_string())),
+                        0 => (Field::Name, Some(l.pick(["Enter the network's name", "Введите имя сети"]).to_string())),
                         n if n > SSID_MAX => (
                             Field::Name,
-                            Some(tr!(l, "网络名称不能超过 {SSID_MAX} 个字符", "網路名稱不能超過 {SSID_MAX} 個字元", "A network's name can't be over {SSID_MAX} characters")),
+                            Some(tr!(
+                                l,
+                                "A network's name can't be over {SSID_MAX} characters",
+                                "Имя сети не может быть длиннее {SSID_MAX} символов",
+                            )),
                         ),
                         _ if a.security.password() => (Field::Password, refused(l, a.security, &self.state.password).map(str::to_string)),
                         _ => (Field::Name, None),
@@ -6723,7 +6749,7 @@ impl App {
                 if done {
                     fx.extend(self.confirmed(which, now));
                 } else {
-                    self.say(self.state.lang.pick(["请按住电源键", "請按住電源鍵", "Hold the power key"]), now);
+                    self.say(self.state.lang.pick(["Hold the power key", "Удерживайте кнопку питания"]), now);
                 }
             }
             Press::Volume { .. } | Press::Spent => {}
@@ -6757,7 +6783,7 @@ impl App {
             Confirm::Wipe => {
                 let chosen: Vec<Wipe> = WIPES.iter().zip(self.state.wipe).filter(|(_, on)| *on).map(|(&w, _)| w).collect();
                 match chosen.is_empty() {
-                    true => self.say(l.pick(["请选择要清除的内容", "請選擇要清除的內容", "Choose what to wipe"]), now),
+                    true => self.say(l.pick(["Choose what to wipe", "Выберите, что очистить"]), now),
                     false => fx.push(Effect::Wipe(chosen)),
                 }
             }
@@ -6778,9 +6804,9 @@ impl App {
             Confirm::Backup => {
                 let s = &self.state;
                 let refused = if !s.backup.contains(&true) {
-                    Some(["请选择要备份的内容", "請選擇要備份的內容", "Choose what to back up"])
+                    Some(["Choose what to back up", "Выберите, что копировать"])
                 } else if s.backup[2] && s.data != Data::Open {
-                    Some(["备份 data 分区需先完成「解密」", "備份 data 分割區需先完成「解密」", "Decrypt before backing up the data partition"])
+                    Some(["Decrypt before backing up the data partition", "Расшифруйте перед созданием копии раздела data"])
                 } else if s.place_open(s.backup_to) {
                     None
                 } else {
@@ -6801,9 +6827,9 @@ impl App {
                 let (entry, parts) = self.state.restore.as_ref().expect("the restore page shows a backup");
                 let restore = Effect::Restore { place: entry.place, name: entry.name.clone(), parts: *parts };
                 if !parts.contains(&true) {
-                    self.say(l.pick(["请选择要恢复的内容", "請選擇要還原的內容", "Choose what to restore"]), now);
+                    self.say(l.pick(["Choose what to restore", "Выберите, что восстановить"]), now);
                 } else if parts[2] && self.state.data != Data::Open {
-                    self.say(l.pick(["恢复 data 分区需先完成「解密」", "還原 data 分割區需先完成「解密」", "Decrypt before restoring the data partition"]), now);
+                    self.say(l.pick(["Decrypt before restoring the data partition", "Расшифруйте перед восстановлением раздела данных"]), now);
                 } else {
                     fx.push(restore);
                 }
@@ -6816,10 +6842,10 @@ impl App {
                 (Some(Ok(slots)), Some(pick)) if pick != slots.active => fx.push(Effect::SetSlot(pick)),
                 (Some(Ok(slots)), _) => {
                     let slot = slots.active.letter();
-                    let said = tr!(l, "下次已从槽位 {slot} 启动", "下次已從槽位 {slot} 啟動", "Slot {slot} already starts next");
+                    let said = tr!(l, "Slot {slot} already starts next", "Слот {slot} уже запустится следующим");
                     self.say(&said, now);
                 }
-                _ => self.say(l.pick(["无法读取启动槽位", "無法讀取啟動槽位", "Couldn't read the boot slots"]), now),
+                _ => self.say(l.pick(["Couldn't read the boot slots", "Не удалось прочитать слоты загрузки"]), now),
             },
             Confirm::FactoryReset => fx.push(Effect::FactoryReset),
             Confirm::Merge => {
@@ -6837,7 +6863,7 @@ impl App {
                 Data::Opening => self.say(l.pick(DATA_OPENING), now),
                 Data::Erased => self.say(l.pick(DATA_ERASED), now),
                 Data::Closed | Data::Failed(_) => {
-                    self.say(l.pick(["请先在「解密」中打开 data 分区", "請先在「解密」中開啟 data 分割區", "Open the data partition in Decrypt first"]), now)
+                    self.say(l.pick(["Open the data partition in Decrypt first", "Сначала откройте раздел data на экране «Расшифровка»"]), now)
                 }
             },
             // The data partition is reached through its own key whether or
@@ -6900,9 +6926,15 @@ impl App {
                 self.adjusting = !self.adjusting;
                 if self.adjusting {
                     let said = match which {
-                        Slider::Brightness => ["按音量键调节亮度，按电源键完成", "按音量鍵調整亮度，按電源鍵完成", "Set the brightness with the volume keys, then press the power key"],
+                        Slider::Brightness => [
+                            "Set the brightness with the volume keys, then press the power key",
+                            "Настройте яркость клавишами громкости, затем нажмите клавишу питания",
+                        ],
                         Slider::Vibration => {
-                            ["按音量键调节振动强度，按电源键完成", "按音量鍵調整震動強度，按電源鍵完成", "Set the vibration with the volume keys, then press the power key"]
+                            [
+                                "Set the vibration with the volume keys, then press the power key",
+                                "Настройте вибрацию клавишами громкости, затем нажмите клавишу питания",
+                            ]
                         }
                     };
                     self.say(l.pick(said), now);
@@ -6913,7 +6945,10 @@ impl App {
             Stop::Dot(i) if self.state.pattern.last() == Some(&i) => self.drawn(now),
             Stop::Dot(i) => {
                 if self.state.pattern.is_empty() {
-                    self.say(l.pick(["连接完成后，在最后一个点上再按一次电源键", "連接完成後，在最後一個點上再按一次電源鍵", "When the pattern is done, press the power key again on its last dot"]), now);
+                    self.say(l.pick([
+                        "When the pattern is done, press the power key again on its last dot",
+                        "Когда графический ключ введён, ещё раз нажмите клавишу питания на его последней точке",
+                    ]), now);
                 }
                 self.join(&self.theme(), i);
                 Vec::new()
@@ -6928,7 +6963,7 @@ impl App {
         let drawn = std::mem::take(&mut self.state.pattern);
         self.repaint_pattern(&self.theme());
         if drawn.len() < 4 {
-            self.say(self.state.lang.pick(["请至少连接 4 个点", "請至少連接 4 個點", "Connect at least 4 dots"]), now);
+            self.say(self.state.lang.pick(["Connect at least 4 dots", "Соедините минимум 4 точки"]), now);
             return Vec::new();
         }
         self.unlock(drawn.iter().map(|i| (b'1' + *i as u8) as char).collect())
@@ -7622,8 +7657,8 @@ mod tests {
         assert_eq!(under(&DeviceInfo { battery: Some(battery_at(20, Charge::Discharging)), ..info() }), plain);
         assert!(under(&DeviceInfo { battery: Some(battery_at(14, Charge::Charging)), ..info() }) > plain, "short of 15% charging");
         assert_eq!(under(&DeviceInfo { battery: Some(battery_at(16, Charge::Charging)), ..info() }), plain);
-        let (title, note) = fmt::battery_low(Lang::Hans, 14, true);
-        assert_eq!((title.as_str(), note.as_str()), ("电量仅剩 14%", "充电至 15% 以上才能安装"));
+        let (title, note) = fmt::battery_low(Lang::Ru, 14, true);
+        assert_eq!((title.as_str(), note.as_str()), ("Заряд батареи 14%", "Зарядите его выше 15%, чтобы установить"));
     }
 
     #[test]
@@ -7637,7 +7672,7 @@ mod tests {
         app.set_boot_slots(Ok(slots(Slot::A)));
         assert_eq!(tap(&mut app, &f, &i, Action::Open(Screen::Slot)), vec![Effect::ReadSlots]);
         assert_eq!(app.screen(), Screen::Slot);
-        assert_eq!(fmt::next_boot(Lang::Hans, Slot::A, Slot::B), ("重启后从 A 槽位启动".into(), "当前运行的是 B 槽位".into()));
+        assert_eq!(fmt::next_boot(Lang::Ru, Slot::A, Slot::B), ("Перезапустится со слота A".into(), "Сейчас запущено со слота B".into()));
     }
 
     #[test]
@@ -8419,7 +8454,7 @@ mod tests {
         assert_eq!(tap_at(&mut app, &f, &i, Action::Toggle(Switch::FileTransfer), 2000), [Effect::FileTransfer(false)]);
         assert!(!app.state.file_transfer);
         assert_eq!(tap_at(&mut app, &f, &i, Action::Toggle(Switch::FileTransfer), 3000), [Effect::FileTransfer(true)]);
-        app.file_transfer_failed(false, "无法开启文件传输", 4000);
+        app.file_transfer_failed(false, "Не удалось включить передачу файлов", 4000);
         assert!(!app.state.file_transfer, "the switch shows how it stands");
     }
 
@@ -8455,7 +8490,7 @@ mod tests {
         assert_eq!(app.state.fetch, Fetch::Stopped { name: "a.zip".into() }, "what came is kept to go on from");
 
         app.fetch_started("b.zip");
-        app.fetch_ended(FetchEnd::Failed("下载失败：the server answered 404".into()));
+        app.fetch_ended(FetchEnd::Failed("Не удалось загрузить: the server answered 404".into()));
         assert!(matches!(app.state.fetch, Fetch::Failed(_)));
     }
 
@@ -8829,8 +8864,8 @@ mod tests {
         let (f, i) = (fonts(), info());
         let mut app = App::new(Screen::Mount, W, H, PPD);
         app.set_mounts(Ok(vec![MountRow { base: "odm".into(), point: "/odm".into(), mounted: true, holders: vec!["qseecomd".into()] }]));
-        tap(&mut app, &f, &i, Action::Unavailable("无法卸载正在使用的分区"));
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("无法卸载正在使用的分区"));
+        tap(&mut app, &f, &i, Action::Unavailable("Используемый раздел нельзя отмонтировать"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Используемый раздел нельзя отмонтировать"));
         // Once the row tapped has faded back, only the message waits.
         app.tick(1000);
         assert_eq!(app.deadline(1000), Some(TOAST_MS));
@@ -8843,15 +8878,15 @@ mod tests {
         let (f, i) = (fonts(), info());
         let mut app = opened(Screen::Settings, &f, &i);
         tap(&mut app, &f, &i, Action::Open(Screen::Language));
-        assert_eq!(app.frame(&f, &i).title, "语言");
+        assert_eq!(app.frame(&f, &i).title, "Язык");
         tap(&mut app, &f, &i, Action::Language(Lang::En));
         assert_eq!((app.state.lang, app.screen()), (Lang::En, Screen::Language), "the page stays");
         assert_eq!(app.frame(&f, &i).title, "Language");
-        tap(&mut app, &f, &i, Action::Language(Lang::Hant));
-        assert_eq!(app.frame(&f, &i).title, "語言");
+        tap(&mut app, &f, &i, Action::Language(Lang::Ru));
+        assert_eq!(app.frame(&f, &i).title, "Язык");
         tap_back(&mut app, &f, &i, 0);
         app.tick(1000);
-        assert_eq!((app.screen(), app.frame(&f, &i).title), (Screen::Settings, "設定"), "and so does the page gone back to");
+        assert_eq!((app.screen(), app.frame(&f, &i).title), (Screen::Settings, "Настройки"), "and so does the page gone back to");
         app.set_mounts(Ok(vec![MountRow { base: "odm".into(), point: "/odm".into(), mounted: true, holders: vec!["qseecomd".into()] }]));
         tap(&mut app, &f, &i, Action::Open(Screen::Language));
         tap(&mut app, &f, &i, Action::Language(Lang::En));
@@ -8868,15 +8903,15 @@ mod tests {
     fn a_language_chosen_is_kept_and_spoken_over_the_one_the_system_names() {
         let (f, i) = (fonts(), info());
         let mut app = opened(Screen::Settings, &f, &i);
-        app.take_settings(None, Some(Lang::Hant));
-        assert_eq!((app.state.lang, app.settings().language), (Lang::Hant, None), "the system's, until one is chosen");
+        app.take_settings(None, Some(Lang::Ru));
+        assert_eq!((app.state.lang, app.settings().language), (Lang::Ru, None), "the system's, until one is chosen");
         tap(&mut app, &f, &i, Action::Open(Screen::Language));
         tap(&mut app, &f, &i, Action::Language(Lang::En));
         let kept = app.settings();
         assert_eq!(kept.language.as_deref(), Some("en"));
 
         let mut next = App::new(Screen::Home, W, H, PPD);
-        next.take_settings(Some(&kept), Some(Lang::Hans));
+        next.take_settings(Some(&kept), Some(Lang::Ru));
         assert_eq!(next.state.lang, Lang::En, "the next start speaks the language chosen");
         assert_eq!(next.settings(), kept, "and keeps it chosen");
     }
@@ -8885,8 +8920,8 @@ mod tests {
     fn with_no_language_chosen_a_start_speaks_the_system_s_or_else_the_one_last_spoken() {
         let spoke_english = Settings { spoken: Some("en".into()), ..Settings::default() };
         let mut app = App::new(Screen::Home, W, H, PPD);
-        app.take_settings(Some(&spoke_english), Some(Lang::Hant));
-        assert_eq!(app.state.lang, Lang::Hant, "the one the system names");
+        app.take_settings(Some(&spoke_english), Some(Lang::Ru));
+        assert_eq!(app.state.lang, Lang::Ru, "the one the system names");
         let mut fastboot = App::new(Screen::Fastboot, W, H, PPD);
         fastboot.take_settings(Some(&spoke_english), None);
         assert_eq!(fastboot.state.lang, Lang::En, "a start that names none, as fastboot's");
@@ -9209,7 +9244,7 @@ mod tests {
         app.frame(&f, &i);
         light_on(&mut app, &f, &i, Stop::Hit(Action::Confirm(Confirm::Reboot)));
         assert!(press(&mut app, Key::Power, 0).is_empty());
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("请按住电源键"), "a short press says how");
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Удерживайте кнопку питания"), "a short press says how");
         app.key(Key::Power, 1000);
         assert_eq!(app.deadline(1000), Some(1000 + CHORD_MS), "it waits for volume down first");
         app.tick(1000 + CHORD_MS);
@@ -9238,7 +9273,7 @@ mod tests {
         light_on(&mut app, &f, &i, Stop::Hit(Action::Slider(Slider::Brightness)));
         assert_eq!(app.state.brightness, SLIDER_START, "it starts a step from its left end");
         press(&mut app, Key::Power, 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("按音量键调节亮度，按电源键完成"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Настройте яркость клавишами громкости, затем нажмите клавишу питания"));
         assert!(press(&mut app, Key::VolumeUp, 0).is_empty(), "the panel shows the brightness");
         assert!((app.state.brightness - (SLIDER_START + SLIDER_STEP)).abs() < 1e-5, "up turns it up");
         press(&mut app, Key::VolumeDown, 0);
@@ -9259,7 +9294,7 @@ mod tests {
         app.frame(&f, &i);
         light_on(&mut app, &f, &i, Stop::Hit(Action::Slider(Slider::Vibration)));
         press(&mut app, Key::Power, 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("按音量键调节振动强度，按电源键完成"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Настройте вибрацию клавишами громкости, затем нажмите клавишу питания"));
         assert_eq!(press(&mut app, Key::VolumeDown, 0), vec![Effect::Haptic], "each step taps at the strength reached");
         assert_eq!(app.state.vibration, 0.0, "it starts a step from its left end, the lightest");
         for _ in 0..20 {
@@ -9281,10 +9316,10 @@ mod tests {
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Dot(0)), "the grid's first dot is lit first");
         assert!(press(&mut app, Key::Power, 0).is_empty());
         assert_eq!(app.state.pattern, [0]);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("连接完成后，在最后一个点上再按一次电源键"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Когда графический ключ введён, ещё раз нажмите клавишу питания на его последней точке"));
         press(&mut app, Key::Power, 0);
         assert!(app.state.pattern.is_empty(), "ended at one dot, the pattern is wiped");
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("请至少连接 4 个点"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Соедините минимум 4 точки"));
         press(&mut app, Key::Power, 0);
         press(&mut app, Key::VolumeDown, 0);
         press(&mut app, Key::VolumeDown, 0);
@@ -9788,12 +9823,12 @@ mod tests {
         let (f, i) = (fonts(), info());
         let mut app = App::new(Screen::Settings, W, H, PPD);
         tap(&mut app, &f, &i, Action::Open(Screen::TimeZone));
-        assert_eq!(app.state.time_zone, 0, "China until another is chosen");
+        assert_eq!(app.state.time_zone, 0, "UTC until another is chosen");
         let london = TIME_ZONES.iter().position(|&(_, _, name)| name == "Europe/London").expect("London is listed");
         tap(&mut app, &f, &i, Action::TimeZone(london));
         assert_eq!(app.state.time_zone, london);
         tap(&mut app, &f, &i, Action::TimeZone(0));
-        assert_eq!(app.state.time_zone, 0, "and China again");
+        assert_eq!(app.state.time_zone, 0, "and UTC again");
     }
 
     #[test]
@@ -10264,18 +10299,18 @@ mod tests {
     }
 
     #[test]
-    fn search_finds_by_pinyin_typed_on_its_own_keyboard() {
+    fn search_finds_by_word_typed_on_its_own_keyboard() {
         let (f, i) = (fonts(), info());
         let mut app = opened(Screen::Search, &f, &i);
-        type_text(&mut app, &f, &i, "bf");
-        assert_eq!(app.state.search, "bf");
+        type_text(&mut app, &f, &i, "back");
+        assert_eq!(app.state.search, "back");
         let opens: Vec<Action> = app.frame(&f, &i).hits.iter().map(|h| h.action).filter(|a| matches!(a, Action::Open(_))).collect();
         assert_eq!(opens, [Action::Open(Screen::Backup)]);
         tap(&mut app, &f, &i, Action::Type(Cap::Backspace));
-        assert_eq!(app.state.search, "b");
+        assert_eq!(app.state.search, "bac");
         tap(&mut app, &f, &i, Action::ClearSearch);
         assert_eq!(app.state.search, "");
-        type_text(&mut app, &f, &i, "xpsj");
+        type_text(&mut app, &f, &i, "timeout");
         tap(&mut app, &f, &i, Action::Type(Cap::Enter));
         assert_eq!(app.screen(), Screen::ScreenOff, "return opens the first result");
         app.key(Key::Back, 0);
@@ -10584,9 +10619,9 @@ mod tests {
             tap(app, &f, &i, Action::Paste)
         };
         assert!(paste(&mut app, FileOp::Copy, "/sdcard").is_empty());
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("无法将\"sdcard\"放入其自身中"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("«sdcard» нельзя переместить внутрь самой себя"));
         assert!(paste(&mut app, FileOp::Move, "/sdcard/a.zip").is_empty());
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("\"a.zip\"已在该文件夹中"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("«a.zip» уже есть в этой папке"));
         assert!(app.state.clip.is_some(), "the entry stays picked, for another folder");
         let copy = Effect::Paste { op: FileOp::Copy, path: "/sdcard/a.zip".into(), into: "/sdcard".into(), clash: None };
         assert_eq!(paste(&mut app, FileOp::Copy, "/sdcard/a.zip"), vec![copy], "a copy where the entry is makes a second one");
@@ -10630,7 +10665,7 @@ mod tests {
         assert_eq!(app.screen(), Screen::Rename, "a name refused can be typed again");
         app.toast = None;
         app.renamed(Err(RenameRefused::Taken), 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("该文件夹中已有\"ab\""), "as the folder compares names");
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("В этой папке уже есть «ab»"), "as the folder compares names");
         app.renamed(Ok(()), 0);
         assert_eq!(app.screen(), Screen::Files, "renamed, the folder shows again");
     }
@@ -10651,9 +10686,9 @@ mod tests {
         assert_eq!(tap(&mut app, &f, &i, Action::ModeBit(0o100)), set(0o657), "and back off");
         app.toast = None;
         app.mode_set(0o4757, Ok(0o757), 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("该位置不支持修改权限"), "a filesystem that kept none of it");
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Здесь нельзя изменить разрешения"), "a filesystem that kept none of it");
         app.mode_set(0o755, Err("give /sdcard/a.zip the permissions 0755: Read-only file system (os error 30)".into()), 0);
-        assert!(app.toast.as_ref().is_some_and(|t| t.0.starts_with("修改权限失败：give /sdcard/a.zip")), "{:?}", app.toast);
+        assert!(app.toast.as_ref().is_some_and(|t| t.0.starts_with("Не удалось изменить разрешения: give /sdcard/a.zip")), "{:?}", app.toast);
         assert_eq!(app.state.file.as_ref().unwrap().mode, 0o040_757, "as it last was");
         tap_back(&mut app, &f, &i, 0);
         tap_back(&mut app, &f, &i, 0);
@@ -10700,11 +10735,11 @@ mod tests {
         let save = vec![Effect::SaveText { path: "/data/adb/run.sh".into(), text: "X \t\necho hi\n".into() }];
         assert_eq!(tap_button(&mut app, &f, &i, 0), save);
         app.text_saved(Err("rename /data/adb/.run.sh.0.saving to /data/adb/run.sh: Read-only file system (os error 30)".into()), 0);
-        assert!(toast(&app).is_some_and(|t| t.starts_with("保存失败：rename")), "{:?}", app.toast);
+        assert!(toast(&app).is_some_and(|t| t.starts_with("Не удалось сохранить: rename")), "{:?}", app.toast);
         assert_eq!(app.frame(&f, &i).button, Some((widgets::Glyph::Done, Action::SaveText)), "still to save");
         assert_eq!(tap_button(&mut app, &f, &i, 0), save);
         app.text_saved(Ok(()), 0);
-        assert_eq!(toast(&app), Some("已保存"));
+        assert_eq!(toast(&app), Some("Сохранено"));
         assert_eq!(app.frame(&f, &i).button, None);
         tap_back(&mut app, &f, &i, 0);
         assert_eq!(app.screen(), Screen::Files, "a file saved leaves at once");
@@ -10720,7 +10755,7 @@ mod tests {
         tap(&mut app, &f, &i, Action::Type(Cap::Char('b')));
         tap_back(&mut app, &f, &i, 1000);
         assert_eq!(app.screen(), Screen::Editor, "the first back only warns");
-        assert_eq!(toast(&app), Some("修改尚未保存，再次返回将放弃修改"));
+        assert_eq!(toast(&app), Some("Изменения не сохранены. Вернитесь ещё раз, чтобы отменить их"));
         tap_back(&mut app, &f, &i, 1000 + TOAST_MS);
         assert_eq!(app.screen(), Screen::Editor, "once the warning is gone, back warns again");
         tap_back(&mut app, &f, &i, 1000 + TOAST_MS + 500);
@@ -10733,9 +10768,9 @@ mod tests {
         let (f, i) = (fonts(), info());
         let mut app = in_sdcard(&f, &i);
         let refused = [
-            (Ok(None), "暂不支持编辑超过 2 MB 的文件"),
-            (Ok(Some(vec![0xff, 0xfe, b'a'])), "仅支持编辑 UTF-8 编码的文本文件"),
-            (Ok(Some(b"\x7fELF\x02\x01\x01\0".to_vec())), "仅支持编辑 UTF-8 编码的文本文件"),
+            (Ok(None), "Файлы размером более 2 MB нельзя редактировать"),
+            (Ok(Some(vec![0xff, 0xfe, b'a'])), "Редактировать можно только текстовые файлы UTF-8"),
+            (Ok(Some(b"\x7fELF\x02\x01\x01\0".to_vec())), "Редактировать можно только текстовые файлы UTF-8"),
         ];
         for (read, said) in refused {
             app.toast = None;
@@ -10744,7 +10779,7 @@ mod tests {
             assert_eq!(toast(&app), Some(said));
         }
         app.text_opened(&f, "/sdcard/a.bin".into(), Err("open /sdcard/a.bin: Permission denied (os error 13)".into()), 0);
-        assert_eq!(toast(&app), Some("读取失败：open /sdcard/a.bin: Permission denied (os error 13)"));
+        assert_eq!(toast(&app), Some("Не удалось прочитать: open /sdcard/a.bin: Permission denied (os error 13)"));
         assert_eq!(app.state.editor, None);
     }
 
@@ -10797,7 +10832,7 @@ mod tests {
         assert_eq!(app.key(Key::Back, 1000), vec![Effect::Cancel]);
         assert_eq!(app.screen(), Screen::Files);
         assert!(tap_at(&mut app, &f, &i, Action::OpenEntry(1), 2000).is_empty());
-        assert_eq!(toast(&app), Some("上一次安装尚未结束，请稍后再试"));
+        assert_eq!(toast(&app), Some("Последняя установка не завершена. Повторите попытку чуть позже"));
     }
 
     #[test]
@@ -10827,7 +10862,7 @@ mod tests {
         tap(&mut app, &f, &i, Action::Open(Screen::Relabel));
         assert_eq!(app.screen(), Screen::Relabel);
         assert!(swipe(&mut app, &f, &i, Confirm::Relabel).is_empty());
-        assert_eq!(toast(&app), Some("请先在「解密」中打开 data 分区"));
+        assert_eq!(toast(&app), Some("Сначала откройте раздел data на экране «Расшифровка»"));
         app.state.data = Data::Locked { user: 0, keys: Keys::Digits, checking: false };
         app.refresh();
         assert_eq!(swipe(&mut app, &f, &i, Confirm::Relabel), vec![Effect::Relabel], "open, though a user has yet to unlock");
@@ -10838,7 +10873,7 @@ mod tests {
         assert!(!app.frame(&f, &i).back, "no going back while it works");
         app.key(Key::Back, 0);
         assert_eq!(app.screen(), Screen::Relabel);
-        assert_eq!(toast(&app), Some("请等待完成或停止后再返回"));
+        assert_eq!(toast(&app), Some("Дождитесь завершения или остановите процесс, прежде чем вернуться назад"));
         app.relabel_progress(0, 0, 0);
         app.relabel_progress(10, 400, 2);
         assert_eq!(tap(&mut app, &f, &i, Action::StopRelabel), vec![Effect::StopRelabel]);
@@ -10886,7 +10921,7 @@ mod tests {
         app.part_at(0);
         assert!(!app.frame(&f, &i).back, "no going back while it works");
         app.key(Key::Back, 0);
-        assert_eq!((app.screen(), toast(&app)), (Screen::PartWork, Some("请等待完成后再返回")));
+        assert_eq!((app.screen(), toast(&app)), (Screen::PartWork, Some("Дождитесь завершения, прежде чем вернуться назад")));
         app.part_ended(0, ItemEnd::Made, "");
         app.part_work_ended(Ok(()), 0);
         assert!(app.frame(&f, &i).back);
@@ -10906,7 +10941,7 @@ mod tests {
         app.state.data = Data::Opening;
         app.refresh();
         assert!(swipe(&mut app, &f, &i, Confirm::Filesystem).is_empty());
-        assert_eq!(toast(&app), Some("正在打开 data 分区，请稍后再试"));
+        assert_eq!(toast(&app), Some("Открытие раздела data. Повторите попытку позже"));
         app.state.data = Data::Open;
         app.refresh();
         let repair = Effect::Filesystem { name: "data".into(), action: FsAction::Repair };
@@ -10956,7 +10991,7 @@ mod tests {
         assert_eq!((app.screen(), app.state.source), (Screen::Installing, Source::Asked { security: false }));
         app.asked_opening();
         app.key(Key::Back, 0);
-        assert_eq!((app.screen(), toast(&app)), (Screen::Installing, Some("正在打开 data 分区，请稍后再试")));
+        assert_eq!((app.screen(), toast(&app)), (Screen::Installing, Some("Открытие раздела data. Повторите попытку позже")));
         app.asked_locked(0, 0);
         assert_eq!(app.state.install, Install::Locked(0));
         assert!(app.frame(&f, &i).hits.iter().any(|h| h.action == Action::Open(Screen::Decrypt)));
@@ -10977,7 +11012,7 @@ mod tests {
         assert!(matches!(app.state.install, Install::Finished { .. }));
         app.rescue_wiping();
         app.key(Key::Back, 5000);
-        assert_eq!((app.screen(), toast(&app)), (Screen::Installing, Some("正在清除，请等待清除完成")));
+        assert_eq!((app.screen(), toast(&app)), (Screen::Installing, Some("Очистка. Дождитесь завершения")));
         app.rescue_wiped(Ok(()), 6000);
         assert_eq!((app.state.install.clone(), app.state.data.clone()), (Install::Wiped(Ok(())), Data::Erased));
         app.frame(&f, &i);
@@ -11033,7 +11068,7 @@ mod tests {
         let nearby = vec![network("Skyward", -34, Security::Psk), network("Skyward-Open", -72, Security::Open), network("Skyward-WEP", -60, Security::Wep)];
         app.set_wlan(Wlan { power: Power::On, networks: nearby, joined: None });
         tap(&mut app, &f, &i, Action::JoinNetwork(2));
-        assert_eq!(toast(&app), Some("暂不支持 WEP 加密的网络"));
+        assert_eq!(toast(&app), Some("Сети WEP не поддерживаются"));
         let cafe = Effect::JoinWlan { ssid: b"Skyward-Open".to_vec(), name: "Skyward-Open".into(), security: Security::Open, password: Secret::default() };
         assert_eq!(tap(&mut app, &f, &i, Action::JoinNetwork(1)), vec![cafe], "an open network is joined at once");
         tap(&mut app, &f, &i, Action::JoinNetwork(0));
@@ -11045,7 +11080,7 @@ mod tests {
         };
         type_in(&mut app, "secret");
         assert!(tap(&mut app, &f, &i, Action::Type(Cap::Enter)).is_empty());
-        assert_eq!(toast(&app), Some("请输入 8 到 63 位密码"));
+        assert_eq!(toast(&app), Some("Введите пароль длиной от 8 до 63 символов"));
         tap(&mut app, &f, &i, Action::Type(Cap::Show(Layer::Digits)));
         type_in(&mut app, "12");
         let fx = tap(&mut app, &f, &i, Action::Type(Cap::Enter));
@@ -11055,7 +11090,7 @@ mod tests {
         assert_eq!(app.screen(), Screen::Wlan, "the WLAN page shows how joining goes");
         assert_eq!((app.state.password.as_str(), app.state.joining.as_ref()), ("", None), "the password is not kept");
         app.set_wlan(connected("Skyward"));
-        assert_eq!(fmt::wlan_value(Lang::Hans, app.state.wlan.as_ref().unwrap()), "Skyward");
+        assert_eq!(fmt::wlan_value(Lang::Ru, app.state.wlan.as_ref().unwrap()), "Skyward");
         tap(&mut app, &f, &i, Action::OpenJoined);
         assert_eq!(app.screen(), Screen::WlanNetwork);
         assert_eq!(tap(&mut app, &f, &i, Action::LeaveNetwork), vec![Effect::LeaveWlan]);
@@ -11115,7 +11150,7 @@ mod tests {
             }
         };
         assert!(tap(&mut app, &f, &i, Action::Type(Cap::Enter)).is_empty());
-        assert_eq!(toast(&app), Some("请输入网络名称"));
+        assert_eq!(toast(&app), Some("Введите имя сети"));
         type_in(&mut app, "skyward");
         let frame = app.frame(&f, &i);
         assert!(!frame.hits.iter().any(|h| h.action == Action::TypeInto(Field::Password)), "an open network takes no password");
@@ -11143,7 +11178,7 @@ mod tests {
         tap(&mut app, &f, &i, Action::TypeInto(Field::Name));
         assert_eq!((app.state.adding.as_ref().unwrap().name.as_str(), app.state.password.as_str()), ("skyward", "secret"));
         assert!(tap(&mut app, &f, &i, Action::Type(Cap::Enter)).is_empty());
-        assert_eq!(toast(&app), Some("请输入 8 到 63 位密码"));
+        assert_eq!(toast(&app), Some("Введите пароль длиной от 8 до 63 символов"));
         assert_eq!(app.state.adding.as_ref().unwrap().field, Field::Password, "the keyboard types into the field turned down");
         tap(&mut app, &f, &i, Action::Type(Cap::Show(Layer::Digits)));
         type_in(&mut app, "12");
@@ -11172,7 +11207,7 @@ mod tests {
             tap(&mut app, &f, &i, Action::Type(Cap::Char('a')));
         }
         assert!(tap(&mut app, &f, &i, Action::Type(Cap::Enter)).is_empty());
-        assert_eq!(toast(&app), Some("网络名称不能超过 32 个字符"));
+        assert_eq!(toast(&app), Some("Имя сети не может быть длиннее 32 символов"));
         tap(&mut app, &f, &i, Action::Type(Cap::Backspace));
         let fx = tap(&mut app, &f, &i, Action::Type(Cap::Enter));
         let name = "a".repeat(32);
@@ -11299,7 +11334,7 @@ mod tests {
         assert_eq!(tap_at(&mut app, &f, &i, Action::Download, 2000), vec![Effect::Download(newest())], "a download stopped carries on");
         let damaged = skyward_net::download::Failure::Damaged;
         app.download_ended(DownloadEnd::Failed(damaged.clone()), Have::Nothing, 3000);
-        assert_eq!(fmt::download_failure(Lang::Hans, &damaged), "完整更新包校验失败，已删除，请重新下载。");
+        assert_eq!(fmt::download_failure(Lang::Ru, &damaged), "Полный пакет OTA не прошёл проверку и был удалён. Загрузите его снова.");
         assert_eq!(tap_at(&mut app, &f, &i, Action::Download, 5000), vec![Effect::Download(newest())]);
         app.download_ended(DownloadEnd::Downloaded, Have::Whole(7_572_375_802), 6000);
         let fx = tap_at(&mut app, &f, &i, Action::InstallDownloaded, 8000);
@@ -11439,7 +11474,7 @@ mod tests {
         hold_entry(&mut app, &f, &i, 1);
         tap(&mut app, &f, &i, Action::RenameEntry);
         let refused =
-            [("", "请输入名称"), ("..", "名称不能为\".\"或\"..\""), ("x/y", "名称不能包含\"/\""), ("DCIM", "该文件夹中已有\"DCIM\"")];
+            [("", "Введите имя"), ("..", "Имя не может быть «.» или «..»"), ("x/y", "Имя не может содержать «/»"), ("DCIM", "В этой папке уже есть «DCIM»")];
         for (name, said) in refused {
             app.state.new_name = name.into();
             app.toast = None;
@@ -11480,7 +11515,7 @@ mod tests {
         app.compose(&mut c, &f, &i, "12:00", 0);
         app.file_job_ended(JobEnd::Stopped, 0);
         app.compose(&mut c, &f, &i, "12:00", 16);
-        assert_eq!(app.titles.as_ref().map(|((title, _), _, _)| *title), Some("复制未完成"));
+        assert_eq!(app.titles.as_ref().map(|((title, _), _, _)| *title), Some("Копирование не завершено"));
     }
 
     #[test]
@@ -11683,13 +11718,13 @@ mod tests {
     fn a_screenshot_says_where_it_went() {
         let mut app = App::new(Screen::Home, W, H, PPD);
         app.screenshot_saved(Ok(Shot::Album), 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("截图已保存到相册"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Снимок экрана сохранён в галерее"));
         app.screenshot_saved(Ok(Shot::Held), 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("截图已暂存，解密后存入相册"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Снимок экрана сохранён. Он появится в галерее после расшифровки"));
         app.screenshot_saved(Err("No space left on device".into()), 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("截图保存失败：No space left on device"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Не удалось сохранить снимок экрана: No space left on device"));
         app.screenshots_not_kept("Read-only file system", 0);
-        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("暂存的截图未能存入相册：Read-only file system"));
+        assert_eq!(app.toast.as_ref().map(|t| t.0.as_str()), Some("Сохранённые скриншоты не попали в галерею: Read-only file system"));
     }
 
     /// With the default two minutes, when the panel dims and when it goes
@@ -11956,7 +11991,7 @@ mod tests {
         press(&mut app, Key::Power, 0);
         app.install(Event::Finished(Outcome::Installed { slot: Slot::A, wipe: false }), 100);
         assert!(app.display_on(), "the finished install lit the panel");
-        // A finger reaching for the phone lands on 重启到系统; within the
+        // A finger reaching for the phone lands on “Reboot to system”; within the
         // guard it only keeps the panel awake.
         assert!(tap_at(&mut app, &f, &i, Action::RebootTo(Target::System), 200).is_empty());
         assert_eq!(app.screen(), Screen::Installing, "the stray tap did not reboot");
@@ -12031,7 +12066,7 @@ mod tests {
         tap(&mut app, &f, &i, Action::Open(Screen::ScreenOff));
         assert_eq!(app.screen(), Screen::ScreenOff);
         let frame = app.frame(&f, &i);
-        assert_eq!(frame.title, "息屏时间");
+        assert_eq!(frame.title, "Отключение экрана");
         assert!(frame.back);
         // The choices sit in order, top to bottom.
         let actions: Vec<Action> = frame.hits.iter().map(|h| h.action).collect();

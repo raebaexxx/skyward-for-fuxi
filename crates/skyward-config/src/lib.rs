@@ -278,13 +278,11 @@ pub struct Owners {
     pub paths: Vec<String>,
 }
 
-/// A name as each language the pages speak writes it: Chinese in
-/// simplified and in traditional characters, and English.
+/// A name as each language the pages speak writes it: English and Russian.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Names {
-    pub hans: String,
-    pub hant: String,
     pub en: String,
+    pub ru: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

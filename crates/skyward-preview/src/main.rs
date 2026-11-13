@@ -130,7 +130,7 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(&out)?;
     let lang = match args.iter().position(|a| a == "--lang") {
         Some(k) => Lang::for_locale(args.get(k + 1).ok_or_else(|| anyhow!("--lang needs a locale"))?)?,
-        None => Lang::Hans,
+        None => Lang::En,
     };
     LANG.set(lang).expect("the language is chosen once");
 
@@ -853,7 +853,7 @@ fn main() -> Result<()> {
         }),
         ("55-language-light", Screen::Language, false, &|_| {}),
         ("56-time-zone-light", Screen::TimeZone, false, &|_| {}),
-        ("56-time-zone-dark-london", Screen::TimeZone, true, &|app| app.state.time_zone = 5),
+        ("56-time-zone-dark-moscow", Screen::TimeZone, true, &|app| app.state.time_zone = 9),
         ("57-logs-light", Screen::Logs, false, &|_| {}),
         ("113-update-light-waiting", Screen::Update, false, &|app| app.set_update(Standing::Waiting)),
         ("114-update-dark-merging", Screen::Update, true, &|app| app.set_update(Standing::Merging(0.37))),

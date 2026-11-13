@@ -1958,7 +1958,13 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
         // The files are served once the partition they are in is open, and
         // not before: there would be nothing to serve.
         if files_wanted && files.is_none() && app.state.data.storage_open() {
-            match skyward_net::serve::Server::start(PathBuf::from(skyward_crypto::data::SDCARD)) {
+            match skyward_net::serve::Server::start(
+                PathBuf::from(skyward_crypto::data::SDCARD),
+                match app.state.lang {
+                    skyward_ui::Lang::En => skyward_net::serve::Tongue::En,
+                    skyward_ui::Lang::Ru => skyward_net::serve::Tongue::Ru,
+                },
+            ) {
                 Ok(server) => {
                     let url = wireless_url(cfg, server.port());
                     skyward_sys::kmsg(&format!(

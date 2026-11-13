@@ -127,11 +127,11 @@ fn chevron(c: &mut Canvas, t: &Theme, right: f32, cy: f32, color: Rgba) {
 
 /// Punctuation that never starts a line; at the end of a full line it hangs
 /// past the edge instead.
-const NO_LINE_START: &str = "，。、；：！？）」』》%,.;:!?)]>”";
+const NO_LINE_START: &str = "，。、；：！？）」』》%,.;:!?)]>”»";
 
 /// Opening punctuation that never ends a line; it moves down with what it
 /// opens.
-const NO_LINE_END: &str = "（「『《([<“";
+const NO_LINE_END: &str = "（「『《([<“«";
 
 pub(crate) fn wrap(c: &Canvas, face: &Face, text: &str, px: f32, max_w: f32) -> Vec<String> {
     let mut lines = Vec::new();
@@ -144,12 +144,12 @@ pub(crate) fn wrap(c: &Canvas, face: &Face, text: &str, px: f32, max_w: f32) -> 
                 line.push(ch);
                 continue;
             }
-            // A Latin word, file names, links and English words with an
-            // apostrophe among them, moves to the next line whole, unless it
-            // fills the line alone: then a path breaks after the last of its
-            // slashes on the line, and any other word where the line ends.
-            // An opening bracket in front of what moves goes with it.
-            let word = |r: char| r.is_ascii_alphanumeric() || matches!(r, '_' | '-' | '.' | '/' | ':' | '\'');
+            // A word, file names, links and words with an apostrophe among
+            // them, moves to the next line whole, unless it fills the line
+            // alone: then a path breaks after the last of its slashes on the
+            // line, and any other word where the line ends. An opening
+            // bracket in front of what moves goes with it.
+            let word = |r: char| r.is_alphanumeric() || matches!(r, '_' | '-' | '.' | '/' | ':' | '\'');
             let mut split = line.len();
             if word(ch) {
                 let start = line.char_indices().rev().take_while(|&(_, r)| word(r)).last().map(|(at, _)| at);
@@ -1926,8 +1926,8 @@ pub fn keypad(c: &mut Canvas, t: &Theme, f: &Fonts, l: Lang, top: f32, pressed: 
         }
         match cap {
             Cap::Char(ch) => c.text_center(&f.heading, &ch.to_string(), cx, cy, m.dp(34.0), t.pal.text),
-            Cap::Backspace => c.text_center(&f.body, l.pick(["删除", "刪除", "Delete"]), cx, cy, m.row_title_px, t.pal.accent),
-            _ => c.text_center(&f.heading, l.pick(["解密", "解密", "Decrypt"]), cx, cy, m.row_title_px, Rgba::rgb(255, 255, 255)),
+            Cap::Backspace => c.text_center(&f.body, l.pick(["Delete", "Удалить"]), cx, cy, m.row_title_px, t.pal.accent),
+            _ => c.text_center(&f.heading, l.pick(["Decrypt", "Расшифровать"]), cx, cy, m.row_title_px, Rgba::rgb(255, 255, 255)),
         }
     }
     keys
@@ -2185,7 +2185,7 @@ const NOTES_STEP: f32 = 38.0;
 const NOTES_PITCH: f32 = 18.0;
 
 /// [`section`] with a word at its right end that does something, such as
-/// the WLAN page's「刷新」: where the word can be touched.
+/// the WLAN page's “Refresh”: where the word can be touched.
 pub fn section_action(c: &mut Canvas, t: &Theme, f: &Fonts, prev_bottom: f32, label: &str, action: &str) -> (f32, Rect) {
     let m = &t.m;
     let y = section(c, t, f, prev_bottom, label);
@@ -2305,7 +2305,7 @@ pub struct Spec<'a> {
     pub value: String,
 }
 
-/// Two-column grid of icon, caption and value, as on the stock「全部参数」.
+/// Two-column grid of icon, caption and value, as on the stock “All specs” page.
 pub fn spec_grid(c: &mut Canvas, t: &Theme, f: &Fonts, top: f32, items: &[Spec]) -> f32 {
     let m = &t.m;
     let (card_x, right) = (m.margin, m.w as f32 - m.margin);
@@ -2391,7 +2391,7 @@ fn output_line<'f>(c: &Canvas, t: &Theme, f: &'f Fonts, line: &str) -> (&'f Face
 }
 
 /// Where a line's baseline sits in a band as tall as the line, the ink of
-/// 「中」 centred in it; then the padding the card's first row has above its
+/// a glyph centred in it; then the padding the card's first row has above its
 /// bands, and its last row below them.
 fn output_layout(t: &Theme, f: &Fonts) -> (f32, f32, f32) {
     let m = &t.m;
@@ -2451,7 +2451,7 @@ pub fn theme_picker(c: &mut Canvas, t: &Theme, f: &Fonts, l: Lang, top: f32) -> 
     let caption_base = top + slot_w + m.dp(11.0) - ink_top;
     let bottom = caption_base + ink_bottom;
     let mut rects = Vec::new();
-    let modes = [(["浅色模式", "淺色模式", "Light mode"], false), (["深色模式", "深色模式", "Dark mode"], true)];
+    let modes = [(["Light mode", "Светлая тема"], false), (["Dark mode", "Тёмная тема"], true)];
     for (i, (label, dark)) in modes.map(|(label, dark)| (l.pick(label), dark)).into_iter().enumerate() {
         let sx = m.margin + (slot_w + gap) * i as f32;
         let on = t.dark == dark;
@@ -2696,7 +2696,7 @@ pub fn keyboard(c: &mut Canvas, t: &Theme, f: &Fonts, l: Lang, top: f32, layer: 
                 let label = if layer == Layer::Shifted { ch.to_ascii_uppercase() } else { ch };
                 c.text_center(&f.heading, &label.to_string(), cx, cy, glyph_px, ink);
             }
-            Cap::Space => c.text_center(&f.body, l.pick(["空格", "空格", "Space"]), cx, cy, m.sub_px, ink),
+            Cap::Space => c.text_center(&f.body, l.pick(["Space", "Пробел"]), cx, cy, m.sub_px, ink),
             Cap::Enter => c.text_center(&f.heading, enter, cx, cy, m.sub_px, Rgba::rgb(255, 255, 255)),
             Cap::Show(Layer::Digits) => c.text_center(&f.heading, "123", cx, cy, m.sub_px, ink),
             Cap::Show(Layer::Symbols) => c.text_center(&f.heading, "#+=", cx, cy, m.sub_px, ink),
@@ -2970,14 +2970,14 @@ mod tests {
         let t = Theme::light(1200, 2608, 3.0);
         let f = crate::font::bundled();
         let mut c = Canvas::filled(1200, 2608, t.pal.bg);
-        let rows = list(&mut c, &t, &f, 621.0, &[Row::new("安全性").trail(Trail::Choice("无"))]);
+        let rows = list(&mut c, &t, &f, 621.0, &[Row::new("Безопасность").trail(Trail::Choice("Нет"))]);
         let row = rows.rows[0];
         let arrows = ink_box(&c, Rect::new(1070.0, row.y + 55.0, 55.0, row.h - 110.0), |p| p[0] < 252);
         let (cy, w, h) = ((arrows.1 + arrows.3) / 2.0, arrows.2 - arrows.0, arrows.3 - arrows.1);
         assert!((arrows.2 - 1116.0).abs() <= 1.0 && (w - 30.0).abs() <= 1.5 && (h - 46.0).abs() <= 1.5, "arrows {arrows:?}");
         assert!((cy - (row.y + row.h / 2.0)).abs() <= 1.0, "the arrows centred on the row: {cy}");
         let stock = Rect::new(36.0, 621.0, 1128.0, 176.0);
-        let picks = choices(&mut c, &t, &f, stock, &["无", "WPA/WPA2-Personal", "WPA3-Personal"], Some(0), None);
+        let picks = choices(&mut c, &t, &f, stock, &["Нет", "WPA/WPA2-Personal", "WPA3-Personal"], Some(0), None);
         let (first, last) = (picks[0], picks[2]);
         assert!((first.x - 256.0).abs() <= 0.5 && (first.x + first.w - 1114.0).abs() <= 0.5, "across {}..{}", first.x, first.x + first.w);
         assert!((first.y - 690.0).abs() <= 0.5 && (last.y + last.h - 1083.0).abs() <= 0.5, "down {}..{}", first.y, last.y + last.h);
@@ -3019,7 +3019,7 @@ mod tests {
         let blue = |p: &[u8]| p[2] as i32 - p[0] as i32 > 60;
         for text in ["", "bf"] {
             let mut c = Canvas::new(t.m.w, t.m.dp(120.0) as u32);
-            let field = search_field(&mut c, &t, &f, x, w, cy, text, "搜索功能与分区");
+            let field = search_field(&mut c, &t, &f, x, w, cy, text, "Поиск функций и разделов");
             assert_eq!(ink_box(&c, field.field, blue).0, f32::MAX, "{text:?}: the field is drawn without its cursor");
             // The cursor laid over the field, as the page does while it shows.
             c.lay(&field.caret.art, field.caret.x, field.caret.y, 1.0);
@@ -3080,16 +3080,16 @@ mod tests {
         let c = Canvas::new(1, 1);
         let px = 40.0;
         let texts = [
-            "Skyward 是自由软件：你可以按照自由软件基金会发布的 GNU 通用公共许可证第 3 版，或者（由你选择）任何更新的版本，重新发布和修改它。",
+            "Skyward — свободное программное обеспечение: вы можете распространять и/или изменять его на условиях GNU General Public License, опубликованной Фондом свободного программного обеспечения, версии 3 или (по вашему выбору) любой более поздней версии.",
             "You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.",
-            "Skyward 的界面文字使用小米的 MiSans 字体，按《MiSans 字体知识产权许可协议》免费使用。",
-            "boot、init_boot、vendor_boot、dtbo、vbmeta 和 recovery",
+            "Интерфейс Skyward использует шрифт MiSans от Xiaomi, бесплатно предоставленный по лицензии MiSans Font Intellectual Property License Agreement.",
+            "boot, init_boot, vendor_boot, dtbo, vbmeta и recovery",
             "Copyright 2026 The Kirk Mono Project Authors (https://github.com/kirklin/kirk-mono)",
             "This phone's system doesn't make an emptied data partition anew when it starts, so it can't be wiped.",
             "This zip isn't signed. Turn off “Verify zip signatures”, then try again.",
-            "這個刷機包未簽署，請關閉「驗證刷機包簽章」後重試。",
+            "Этот zip-архив не подписан. Отключите «Проверять подписи zip», затем повторите попытку.",
         ];
-        let latin = |ch: char| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ':' | '\'');
+        let letter = |ch: char| ch.is_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | ':' | '\'');
         for text in texts {
             for ems in 6..30 {
                 let max_w = ems as f32 * px;
@@ -3100,7 +3100,7 @@ mod tests {
                 }
                 let squeezed = |s: &str| s.chars().filter(|ch| *ch != ' ').collect::<String>();
                 assert_eq!(squeezed(&lines.concat()), squeezed(text), "nothing lost at {ems} em");
-                for word in text.split(|ch: char| !latin(ch)).filter(|w| !w.is_empty()) {
+                for word in text.split(|ch: char| !letter(ch)).filter(|w| !w.is_empty()) {
                     if c.text_width(&f.body, word, px) <= max_w {
                         assert!(lines.iter().any(|l| l.contains(word)), "{word:?} broken at {ems} em: {lines:?}");
                     }
@@ -3114,11 +3114,11 @@ mod tests {
         let f = crate::font::bundled();
         let c = Canvas::new(1, 1);
         let px = 40.0;
-        let text = "/data/dalvik-cache、/data/misc/apexdata/com.android.art/dalvik-cache、/data/ota 里预编译的代码";
+        let text = "/data/dalvik-cache, /data/misc/apexdata/com.android.art/dalvik-cache и /data/ota, скомпилированные заново при следующем запуске";
         let path = "/data/misc/apexdata/com.android.art/dalvik-cache";
         let max_w = c.text_width(&f.body, path, px) * 0.8;
         let lines = wrap(&c, &f.body, text, px, max_w);
-        assert_eq!(lines.concat(), text, "nothing lost: {lines:?}");
+        assert_eq!(lines.concat().replace(' ', ""), text.replace(' ', ""), "nothing lost: {lines:?}");
         let broken = lines.iter().position(|l| l.ends_with("com.android.art/")).expect("the long path breaks after a slash");
         assert!(lines[broken].starts_with("/data/misc/"), "the path starts its own line: {lines:?}");
         assert!(lines[broken + 1].starts_with("dalvik-cache"), "and goes on with what follows the slash: {lines:?}");

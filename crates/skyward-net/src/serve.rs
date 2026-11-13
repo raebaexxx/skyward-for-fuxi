@@ -18,6 +18,23 @@ use std::time::Duration;
 /// The port the files are served on.
 pub const PORT: u16 = 8080;
 
+/// The language the page a browser opens speaks, as the pages of the
+/// recovery do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tongue {
+    En,
+    Ru,
+}
+
+impl Tongue {
+    fn pick(self, en: &'static str, ru: &'static str) -> &'static str {
+        match self {
+            Tongue::En => en,
+            Tongue::Ru => ru,
+        }
+    }
+}
+
 /// The most a request's head may take.
 const HEAD_MAX: usize = 16 << 10;
 
@@ -38,12 +55,12 @@ pub struct Server {
 
 impl Server {
     /// Serve the files under `root` on [`PORT`], until the server is let go.
-    pub fn start(root: PathBuf) -> Result<Server> {
-        Server::start_at(root, PORT)
+    pub fn start(root: PathBuf, tongue: Tongue) -> Result<Server> {
+        Server::start_at(root, PORT, tongue)
     }
 
     /// Serve on `port`, which is the one asked for where it is free.
-    fn start_at(root: PathBuf, port: u16) -> Result<Server> {
+    fn start_at(root: PathBuf, port: u16, tongue: Tongue) -> Result<Server> {
         // The folder is named once with every link along the way followed,
         // so that what a browser asks for is checked against what is served
         // rather than against a name that leads elsewhere.
@@ -67,7 +84,7 @@ impl Server {
                             // Each request is answered on a thread of its
                             // own, so that a long transfer holds up nothing.
                             let _ = thread::Builder::new().name("files-request".into()).spawn(move || {
-                                let _ = answer(stream, &root);
+                                let _ = answer(stream, &root, tongue);
                                 count.fetch_add(1, Ordering::Relaxed);
                             });
                         }
@@ -112,7 +129,7 @@ struct Head {
 }
 
 /// Answer one request on `stream`, for the files under `root`.
-fn answer(mut stream: TcpStream, root: &Path) -> Result<()> {
+fn answer(mut stream: TcpStream, root: &Path, tongue: Tongue) -> Result<()> {
     stream.set_read_timeout(Some(PATIENCE))?;
     stream.set_write_timeout(Some(PATIENCE))?;
     let mut reader = BufReader::new(stream.try_clone()?);
@@ -124,7 +141,7 @@ fn answer(mut stream: TcpStream, root: &Path) -> Result<()> {
         return reply(&mut stream, 403, "text/plain; charset=utf-8", b"forbidden");
     };
     match head.method.as_str() {
-        "GET" | "HEAD" => get(&mut stream, root, &head, &target),
+        "GET" | "HEAD" => get(&mut stream, root, &head, &target, tongue),
         "PUT" => put(&mut stream, &mut reader, root, &head, &target),
         _ => reply(&mut stream, 405, "text/plain; charset=utf-8", b"not allowed"),
     }
@@ -173,7 +190,7 @@ fn read_head(reader: &mut BufReader<TcpStream>) -> Result<Option<Head>> {
 /// Answer a download: the folder listed where `target` is one, the file
 /// itself where it is a file, and the part of it asked for where a range
 /// is.
-fn get(stream: &mut TcpStream, root: &Path, head: &Head, target: &Path) -> Result<()> {
+fn get(stream: &mut TcpStream, root: &Path, head: &Head, target: &Path, tongue: Tongue) -> Result<()> {
     let meta = match fs::metadata(target) {
         Ok(meta) => meta,
         Err(_) => return reply(stream, 404, "text/plain; charset=utf-8", b"not found"),
@@ -182,7 +199,7 @@ fn get(stream: &mut TcpStream, root: &Path, head: &Head, target: &Path) -> Resul
         return reply(stream, 403, "text/plain; charset=utf-8", b"forbidden");
     }
     if meta.is_dir() {
-        let body = listing(root, target);
+        let body = listing(root, target, tongue);
         let text = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
             body.len()
@@ -350,6 +367,20 @@ fn parse_range(header: &str, len: u64) -> Option<(u64, u64)> {
     (first <= last && first < len).then_some((first, last))
 }
 
+/// A count of entries in Russian, in the form the number takes.
+fn ru_items(n: usize) -> &'static str {
+    let (last_two, last) = (n % 100, n % 10);
+    if (11..=14).contains(&last_two) {
+        "элементов"
+    } else {
+        match last {
+            1 => "элемент",
+            2..=4 => "элемента",
+            _ => "элементов",
+        }
+    }
+}
+
 /// What a percent-encoded address says.
 fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
@@ -380,13 +411,16 @@ fn hex(byte: u8) -> Option<u8> {
 
 /// The page that lists `dir`: a card for each entry, with the way up the
 /// folder and the way to put files in it.
-fn listing(root: &Path, dir: &Path) -> String {
+fn listing(root: &Path, dir: &Path, tongue: Tongue) -> String {
     let shown = dir.strip_prefix(root).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     let path_of = |name: &str| -> String { name.split('/').map(url_encode).collect::<Vec<_>>().join("/") };
     let prefix = if shown.is_empty() { "/".to_string() } else { format!("/{}/", path_of(&shown)) };
     let mut cards = String::new();
     if !shown.is_empty() {
-        cards.push_str("<a class=card href=\"../\"><div class=face>&#8593;</div><div class=name>..</div><div class=note>上级</div></a>");
+        cards.push_str(&format!(
+            "<a class=card href=\"../\"><div class=face>&#8593;</div><div class=name>..</div><div class=note>{up}</div></a>",
+            up = tongue.pick("Up", "Вверх"),
+        ));
     }
     let mut entries: Vec<_> = fs::read_dir(dir).into_iter().flatten().filter_map(|entry| entry.ok()).collect();
     entries.sort_by_key(|entry| {
@@ -399,7 +433,11 @@ fn listing(root: &Path, dir: &Path) -> String {
         let is_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
         let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
         let href = format!("{prefix}{}{}", url_encode(&name), if is_dir { "/" } else { "" });
-        let (face, note) = if is_dir { ("&#128193;".to_string(), "文件夹".to_string()) } else { (face_of(&name), size_of(size)) };
+        let (face, note) = if is_dir {
+            ("&#128193;".to_string(), tongue.pick("Folder", "Папка").to_string())
+        } else {
+            (face_of(&name), size_of(size))
+        };
         cards.push_str(&format!(
             "<a class=card href=\"{href}\"><div class=face>{face}</div><div class=name title=\"{title}\">{shown}</div><div class=note>{note}</div></a>",
             title = html_escape(&name),
@@ -408,9 +446,9 @@ fn listing(root: &Path, dir: &Path) -> String {
         count += 1;
     }
     if count == 0 {
-        cards.push_str("<div class=empty>这个文件夹是空的</div>");
+        cards.push_str(&format!("<div class=empty>{}</div>", tongue.pick("This folder is empty", "Эта папка пуста")));
     }
-    let mut crumbs = "<a href=\"/\">根目录</a>".to_string();
+    let mut crumbs = format!("<a href=\"/\">{}</a>", tongue.pick("Root", "Корень"));
     if !shown.is_empty() {
         let mut walked = String::new();
         for part in shown.split('/').filter(|part| !part.is_empty()) {
@@ -421,18 +459,32 @@ fn listing(root: &Path, dir: &Path) -> String {
             crumbs.push_str(&format!(" <span>/</span> <a href=\"/{}/\">{}</a>", path_of(&walked), html_escape(part)));
         }
     }
+    let items = match tongue {
+        Tongue::En => format!("{count} items"),
+        Tongue::Ru => format!("{count} {}", ru_items(count)),
+    };
     format!(
-        "<!doctype html><html lang=zh><head><meta charset=utf-8>\
+        "<!doctype html><html lang={lang}><head><meta charset=utf-8>\
 <meta name=viewport content=\"width=device-width,initial-scale=1\">\
-<title>Skyward 无线传输</title><style>{style}</style></head><body>\
+<title>{title}</title><style>{style}</style></head><body>\
 <header><div class=bar><div class=brand><i></i>Skyward</div><div class=crumbs>{crumbs}</div>\
-<button class=ghost onclick=\"pick()\">上传文件</button></div></header>\
+<button class=ghost onclick=\"pick()\">{upload}</button></div></header>\
 <main><div class=grid>{cards}</div>\
-<div id=drop onclick=\"pick()\"><b>把文件拖到这里，或点一下选择</b>放进当前文件夹</div>\
+<div id=drop onclick=\"pick()\"><b>{drop}</b>{into}</div>\
 <div id=bar><i></i></div>\
-<p class=hint>同一网络里的设备都能打开这一页，也能上传和下载。关掉无线传输，或离开恢复模式，它就消失。</p>\
-</main><footer>共 {count} 项 · 由 Skyward 恢复模式提供</footer>\
+<p class=hint>{hint}</p>\
+</main><footer>{items} · {by}</footer>\
 <input id=file type=file multiple hidden><script>{script}</script></body></html>",
+        lang = tongue.pick("en", "ru"),
+        title = tongue.pick("Skyward wireless transfer", "Skyward — беспроводная передача"),
+        upload = tongue.pick("Upload files", "Загрузить файлы"),
+        drop = tongue.pick("Drop files here, or tap to choose them", "Перетащите файлы сюда или нажмите, чтобы выбрать"),
+        into = tongue.pick(" into this folder", " в эту папку"),
+        hint = tongue.pick(
+            "Any device on the same network can open this page, download files and upload its own. Turning wireless transfer off, or leaving recovery, makes it go.",
+            "Любое устройство в этой сети может открыть страницу, скачать файлы и загрузить свои. Если выключить беспроводную передачу или выйти из recovery, страница исчезнет.",
+        ),
+        by = tongue.pick("Served by Skyward recovery", "Предоставлено Skyward recovery"),
         style = STYLE,
         script = SCRIPT,
     )
@@ -616,7 +668,7 @@ mod tests {
         let served = root.to_path_buf();
         let thread = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            let _ = answer(stream, &served);
+            let _ = answer(stream, &served, Tongue::En);
         });
         let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
         client.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
@@ -683,18 +735,18 @@ mod tests {
         let root = scratch("list");
         fs::create_dir_all(root.join("DCIM")).unwrap();
         fs::write(root.join("a b&c.txt"), b"x").unwrap();
-        let page = listing(&root, &root);
+        let page = listing(&root, &root, Tongue::En);
         assert!(page.contains("href=\"/DCIM/\""), "{page}");
         assert!(page.contains("href=\"/a%20b%26c.txt\""), "the address is escaped: {page}");
         assert!(page.contains("a b&amp;c.txt"), "the name is escaped: {page}");
-        assert!(page.contains("共 2 项"), "{page}");
+        assert!(page.contains("2 items"), "{page}");
     }
 
     #[test]
     fn the_whole_folder_is_served_on_a_port_of_its_own() {
         let root = scratch("server");
         fs::write(root.join("one.txt"), b"one").unwrap();
-        let server = Server::start_at(root.clone(), 0).unwrap();
+        let server = Server::start_at(root.clone(), 0, Tongue::En).unwrap();
         let url = format!("http://127.0.0.1:{}/one.txt", server.port());
         let mut client = TcpStream::connect(("127.0.0.1", server.port())).unwrap();
         client.write_all(format!("GET /one.txt HTTP/1.1\r\nHost: {url}\r\n\r\n").as_bytes()).unwrap();
