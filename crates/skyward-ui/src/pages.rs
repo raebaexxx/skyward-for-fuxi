@@ -971,6 +971,12 @@ fn install_title(l: Lang, source: Source) -> &'static str {
     })
 }
 
+/// What the package being installed is called on its page: the file's own
+/// name where the page was given one, and the version it brings otherwise.
+fn package_named<'a>(s: &'a State, version: Option<&'a str>) -> Option<&'a str> {
+    s.package_name.as_deref().or(version)
+}
+
 /// What a place is called at the top of its folders.
 fn place_name(l: Lang, place: Place) -> &'static str {
     l.pick(match place {
@@ -1264,15 +1270,16 @@ pub fn installing(cx: &Ctx) -> Frame {
             widgets::footnote(&mut c, t, f, track.y + track.h, note)
         }
         Install::Confirming { version, wipe } => {
+            let named = package_named(s, version.as_deref());
             let (title, color, icon, detail, which) = if *wipe {
                 let reset = factory_reset(s);
-                let detail = match version {
+                let detail = match named {
                     Some(v) => tr!(l, "安装 {v} 后将{reset}。", "安裝 {v} 後將{reset}。", "Installing {v} then {reset}."),
                     None => tr!(l, "安装该更新后将{reset}。", "安裝這個更新後將{reset}。", "Installing this update then {reset}."),
                 };
                 (l.pick(["需清除全部数据", "需清除全部資料", "All data has to be wiped"]).to_string(), ORANGE, Icon::Wipe, detail, Confirm::InstallWipe)
             } else {
-                let title = match version {
+                let title = match named {
                     Some(v) => tr!(l, "安装 {v}", "安裝 {v}", "Install {v}"),
                     None => l.pick(["安装系统更新", "安裝系統更新", "Install the system update"]).into(),
                 };
@@ -1295,7 +1302,7 @@ pub fn installing(cx: &Ctx) -> Frame {
             widgets::footnote(&mut c, t, f, track.y + track.h, note)
         }
         Install::Updating { version, stage, overwriting } => {
-            let title = match version {
+            let title = match package_named(s, version.as_deref()) {
                 Some(v) => tr!(l, "正在安装 {v}", "正在安裝 {v}", "Installing {v}"),
                 None => l.pick(["正在安装系统更新", "正在安裝系統更新", "Installing the system update"]).into(),
             };

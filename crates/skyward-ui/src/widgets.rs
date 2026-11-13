@@ -747,23 +747,29 @@ fn blur_room(t: &Theme) -> f32 {
 
 /// The large title a page opens with, as ink that fades and blurs away
 /// while the page scrolls; it sits where the page starts and scrolls with
-/// it.
+/// it. A title too long for the screen is set smaller, so that all of it
+/// stays in sight.
 pub fn big_title(t: &Theme, f: &Fonts, title: &str) -> Sprite {
     let m = &t.m;
     let pad = blur_room(t);
-    let w = Canvas::new(0, 0).text_width(&f.title, title, m.title_px);
+    let room = m.w as f32 - 2.0 * m.title_x;
+    let px = fitted_px(&Canvas::new(0, 0), &f.title, title, m.title_px, m.title_px * 0.72, room);
+    let w = Canvas::new(0, 0).text_width(&f.title, title, px);
     let (x, y) = (m.title_x - pad, m.title_top - pad);
-    let size = ((w + pad * 2.0).ceil() as u32, (m.title_px * 1.4 + pad * 2.0).ceil() as u32);
+    let size = ((w + pad * 2.0).ceil() as u32, (px * 1.4 + pad * 2.0).ceil() as u32);
     Sprite::capture(x, y, size.0, size.1, |c, dx, dy| {
-        c.text_top(&f.title, title, m.title_x + dx, m.title_top + dy, m.title_px, Rgba::rgb(0, 0, 0), None);
+        c.text_top(&f.title, title, m.title_x + dx, m.title_top + dy, px, Rgba::rgb(0, 0, 0), None);
     })
 }
 
 /// The page title centred in the bar over a scrolled page, as ink that
-/// fades and sharpens in.
+/// fades and sharpens in. It is set smaller where the screen has no room
+/// for it whole.
 pub fn small_title(t: &Theme, f: &Fonts, title: &str) -> Sprite {
     let m = &t.m;
-    let (px, pad) = (m.account_title_px, blur_room(t));
+    let pad = blur_room(t);
+    let room = m.w as f32 - 2.0 * m.title_x;
+    let px = fitted_px(&Canvas::new(0, 0), &f.heading, title, m.account_title_px, m.account_title_px * 0.8, room);
     let w = Canvas::new(0, 0).text_width(&f.heading, title, px);
     let h = px * 1.5;
     let (x, y) = ((m.w as f32 - w) / 2.0 - pad, m.back_cy - h / 2.0 - pad);

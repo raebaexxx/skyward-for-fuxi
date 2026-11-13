@@ -8688,6 +8688,17 @@ mod tests {
     }
 
     #[test]
+    fn a_title_too_long_for_the_screen_is_set_smaller_to_fit() {
+        let (f, _) = (fonts(), info());
+        let t = Theme::light(W, H, PPD);
+        let long = widgets::big_title(&t, &f, "Install from internal storage");
+        assert!(long.x + long.w as f32 <= t.m.w as f32, "the whole title stays in sight: {} + {}", long.x, long.w);
+        assert!(long.h < widgets::big_title(&t, &f, "Install").h, "it is set smaller than a title that fits");
+        let bar = widgets::small_title(&t, &f, "Install from internal storage");
+        assert!(bar.x >= 0.0 && bar.x + bar.w as f32 <= t.m.w as f32, "the bar title fits too: {} + {}", bar.x, bar.w);
+    }
+
+    #[test]
     fn the_bar_title_comes_after_the_large_title_fades_and_the_bar_once_content_slides_under() {
         let (f, i) = (fonts(), info());
         let mut app = App::new(Screen::Settings, W, H, PPD);
