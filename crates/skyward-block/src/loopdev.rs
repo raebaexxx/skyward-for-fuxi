@@ -20,6 +20,12 @@ mod android {
     /// recovery ends, which is as long as anything mounted from it lasts.
     const READ_ONLY: u32 = 1;
 
+    /// The device reads in the page-sized blocks Android's own loop
+    /// devices use. A phone that keeps its bundles on an EROFS image reads
+    /// a smaller block back as an I/O error, which leaves the bundle
+    /// unmountable.
+    const BLOCK_SIZE: u32 = 4096;
+
     /// Every field is a plain number or a run of bytes, so the request is
     /// made by zeroing it and filling in what matters.
     #[repr(C)]
@@ -65,6 +71,7 @@ mod android {
             .with_context(|| format!("open {}", path.display()))?;
         let mut config: Config = unsafe { std::mem::zeroed() };
         config.fd = backing.as_raw_fd() as u32;
+        config.block_size = BLOCK_SIZE;
         config.info.offset = offset;
         config.info.size_limit = length;
         config.info.flags = READ_ONLY;

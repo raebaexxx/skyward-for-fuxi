@@ -4,10 +4,15 @@
 
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
+use std::ffi::{CStr, CString};
 use std::fs;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+
+/// The attribute an entry's SELinux label is kept in.
+const LABEL: &CStr = c"security.selinux";
 
 /// Where a phone keeps the bundles of shared libraries its own partitions
 /// were built against.
@@ -62,6 +67,24 @@ const RECOVERY_LABELS: &str = "/system/etc/selinux";
 /// directory.
 const VENDOR_LABELS: &str = "/vendor/etc/selinux";
 const VENDOR_LABEL_FILE: &str = "vendor_hwservice_contexts";
+
+/// The service context files the phone may carry, as the recovery's
+/// libselinux chooses them: the installed file first, then the copy at the
+/// root of the recovery's ramdisk. The lists say which of them hold the
+/// labels a service registers under.
+const PLAT_SERVICE: &str = "/plat_service_contexts";
+const PLAT_SERVICE_INSTALLED: &str = "/mnt/system/system/etc/selinux/plat_service_contexts";
+const PLAT_SERVICE_PRIMARY: &str = "/system/etc/selinux/plat_service_contexts";
+const SYSTEM_EXT_SERVICE: &str = "/system_ext_service_contexts";
+const PRODUCT_SERVICE: &str = "/product_service_contexts";
+const VENDOR_SERVICE: &str = "/vendor_service_contexts";
+const INSTALLED_SYSTEM_EXT_SERVICE: &str = "/system_ext/etc/selinux/system_ext_service_contexts";
+const INSTALLED_PRODUCT_SERVICE: &str = "/product/etc/selinux/product_service_contexts";
+const INSTALLED_VENDOR_SERVICE: &str = "/vendor/etc/selinux/vendor_service_contexts";
+const INSTALLED_ODM_SERVICE: &str = "/odm/etc/selinux/odm_service_contexts";
+const INSTALLED_SYSTEM_EXT_HWSERVICE: &str = "/system_ext/etc/selinux/system_ext_hwservice_contexts";
+const INSTALLED_PRODUCT_HWSERVICE: &str = "/product/etc/selinux/product_hwservice_contexts";
+const INSTALLED_ODM_HWSERVICE: &str = "/odm/etc/selinux/odm_hwservice_contexts";
 
 /// Every hardware service's interface chain ends here, and the directory
 /// checks the whole chain before it lets one register.
@@ -227,58 +250,167 @@ fn open_descriptions(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Give the vendor's service labels the lines for the services this phone
-/// still carries. hwservicemanager decides whether one may register by
-/// looking its interface up in this file; a lookup that finds nothing is a
-/// refusal of its own, not a policy decision, so a phone in permissive mode
-/// refuses just the same. Android 17's file no longer names the older
-/// services, so a copy with the lines added is shown in its place.
+/// Give the phone's service directories the labels its services register
+/// under. A port may repeat a service in its context files, or name one
+/// differently in two partitions; libselinux refuses a file with two
+/// entries for one service, and the service directory then never comes
+/// back. The labels the recovery needs are gathered into one file, and the
+/// others are shown empty, so no entry is read twice. hwservicemanager
+/// decides whether one may register by looking its interface up in the
+/// vendor's file; a lookup that finds nothing is a refusal of its own, not
+/// a policy decision, so a phone in permissive mode refuses just the same.
 fn declare_service_labels(wanted: &[String]) -> Result<()> {
+    if let Err(e) = stage_vendor_labels(wanted) {
+        skyward_sys::kmsg(&format!("the vendor's own labels stay in place: {e:#}"))?;
+    }
+    if let Err(e) = prepare_service_contexts() {
+        skyward_sys::kmsg(&format!("the service contexts stay as the phone keeps them: {e:#}"))?;
+    }
+    Ok(())
+}
+
+/// Show the vendor's labels folder from the recovery's own copy, with the
+/// older hardware services added to the file that says which of them may
+/// register, and with the vendor service contexts left empty: the labels
+/// the services need are gathered into the platform's file below.
+fn stage_vendor_labels(wanted: &[String]) -> Result<()> {
     let dir = Path::new(VENDOR_LABELS);
     let labels = dir.join(VENDOR_LABEL_FILE);
-    if !labels.is_file() {
-        return Ok(());
-    }
-    let have = fs::read_to_string(&labels).with_context(|| format!("read {}", labels.display()))?;
-    let mut missing = Vec::new();
-    if !have.contains(BASE_INTERFACE) {
-        missing.push(BASE_INTERFACE.to_string());
-    }
-    for name in wanted {
-        if let Some(interface) = interface_of(name) {
-            if !have.contains(&interface) {
-                missing.push(interface);
-            }
-        }
-    }
-    if missing.is_empty() {
-        return Ok(());
-    }
-    // The installed system's own file still names them, so the lines are
-    // taken from there rather than written out here: each carries the label
-    // the system's policy gives that service.
-    let plat = fs::read_to_string(SERVICE_LABELS).with_context(|| format!("read {SERVICE_LABELS}"))?;
-    let mut add = String::new();
-    for interface in missing {
-        if let Some(line) = plat.lines().find(|line| line.starts_with(&interface)) {
-            add.push_str(line);
-            add.push('\n');
-        }
-    }
-    if add.is_empty() {
-        return Ok(());
-    }
     let staged = Path::new("/tmp/selinux");
     if staged.exists() {
         fs::remove_dir_all(staged).with_context(|| format!("clear {}", staged.display()))?;
     }
     copy_labels(dir, staged)?;
-    let staged_labels = staged.join(VENDOR_LABEL_FILE);
-    let mut text = fs::read_to_string(&staged_labels).with_context(|| format!("read {}", staged_labels.display()))?;
-    text.push_str(&add);
-    fs::write(&staged_labels, text).with_context(|| format!("add the services to {}", staged_labels.display()))?;
-    fs::set_permissions(&staged_labels, fs::Permissions::from_mode(0o644))?;
+    let staged_service = staged.join("vendor_service_contexts");
+    if staged_service.is_file() {
+        fs::write(&staged_service, b"").with_context(|| format!("empty {}", staged_service.display()))?;
+        fs::set_permissions(&staged_service, fs::Permissions::from_mode(0o644))?;
+    }
+    if labels.is_file() {
+        // A port can name one service twice; libselinux refuses the whole
+        // file for it. Only the first line of each service is kept.
+        let mut seen = BTreeSet::new();
+        let mut text = String::new();
+        for (name, label) in read_contexts(&labels)? {
+            if seen.insert(name.clone()) {
+                text.push_str(&format!("{name} {label}\n"));
+            }
+        }
+        let plat = fs::read_to_string(SERVICE_LABELS).unwrap_or_default();
+        let mut add = |interface: &str| {
+            if seen.insert(interface.to_string()) {
+                if let Some(line) = plat.lines().find(|line| line.starts_with(interface)) {
+                    text.push_str(line);
+                    text.push('\n');
+                }
+            }
+        };
+        add(BASE_INTERFACE);
+        for name in wanted {
+            if let Some(interface) = interface_of(name) {
+                add(&interface);
+            }
+        }
+        fs::write(staged.join(VENDOR_LABEL_FILE), text).with_context(|| format!("add the services to {}", staged.join(VENDOR_LABEL_FILE).display()))?;
+        fs::set_permissions(staged.join(VENDOR_LABEL_FILE), fs::Permissions::from_mode(0o644))?;
+    }
     skyward_block::mount::bind(staged, dir).with_context(|| format!("show {} at {}", staged.display(), dir.display()))?;
+    Ok(())
+}
+
+/// Gather the service labels the recovery's services need into the
+/// platform's file, and leave every other service context file empty: the
+/// installed system's files are first in libselinux's search, so a port
+/// that repeats or contradicts one of them would otherwise stop its
+/// service directory from starting.
+fn prepare_service_contexts() -> Result<()> {
+    let merged = merge_contexts(&[
+        Path::new(PLAT_SERVICE),
+        Path::new(PLAT_SERVICE_INSTALLED),
+        Path::new(VENDOR_SERVICE),
+        Path::new(SYSTEM_EXT_SERVICE),
+        Path::new(PRODUCT_SERVICE),
+    ])?;
+    let primary = Path::new(PLAT_SERVICE_PRIMARY);
+    let root = Path::new(PLAT_SERVICE);
+    if primary.is_file() {
+        show_context(primary, &merged, "plat_service_contexts")?;
+        if root.is_file() {
+            show_context(root, "", "plat_service_contexts.root")?;
+        }
+    } else if root.is_file() {
+        show_context(root, &merged, "plat_service_contexts")?;
+    }
+    for (target, name) in [
+        (INSTALLED_SYSTEM_EXT_SERVICE, "system_ext_service_contexts"),
+        (SYSTEM_EXT_SERVICE, "system_ext_service_contexts.root"),
+        (INSTALLED_PRODUCT_SERVICE, "product_service_contexts"),
+        (PRODUCT_SERVICE, "product_service_contexts.root"),
+        (INSTALLED_VENDOR_SERVICE, "vendor_service_contexts"),
+        (VENDOR_SERVICE, "vendor_service_contexts.root"),
+        (INSTALLED_ODM_SERVICE, "odm_service_contexts"),
+        (INSTALLED_SYSTEM_EXT_HWSERVICE, "system_ext_hwservice_contexts"),
+        (INSTALLED_PRODUCT_HWSERVICE, "product_hwservice_contexts"),
+        (INSTALLED_ODM_HWSERVICE, "odm_hwservice_contexts"),
+    ] {
+        show_context(Path::new(target), "", name)?;
+    }
+    Ok(())
+}
+
+/// The service context lines of `sources`, in order, with each service
+/// named once: the first file that names it keeps it. A file that is not
+/// there adds nothing.
+fn merge_contexts(sources: &[&Path]) -> Result<String> {
+    let mut seen = BTreeSet::new();
+    let mut text = String::new();
+    for source in sources {
+        for (name, label) in read_contexts(source)? {
+            if seen.insert(name.clone()) {
+                text.push_str(&format!("{name} {label}\n"));
+            }
+        }
+    }
+    Ok(text)
+}
+
+/// The service names and labels of a context file, comments and blank
+/// lines left out; none where the file is not there.
+fn read_contexts(path: &Path) -> Result<Vec<(String, String)>> {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+    };
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split_whitespace();
+        if let (Some(name), Some(label)) = (fields.next(), fields.next()) {
+            out.push((name.to_string(), label.to_string()));
+        }
+    }
+    Ok(out)
+}
+
+/// Show `content` at `target` in place of the file there, labeled as the
+/// file is: the recovery's temporary filesystem labels a copy as temporary
+/// storage otherwise, and the service directory is refused the file its
+/// policy names.
+fn show_context(target: &Path, content: &str, name: &str) -> Result<()> {
+    if !target.is_file() {
+        return Ok(());
+    }
+    let dir = Path::new("/tmp/contexts");
+    fs::create_dir_all(dir).with_context(|| format!("make {}", dir.display()))?;
+    let staged = dir.join(name);
+    fs::write(&staged, content).with_context(|| format!("write {}", staged.display()))?;
+    fs::set_permissions(&staged, fs::Permissions::from_mode(0o644)).with_context(|| format!("open {} to the services", staged.display()))?;
+    copy_label(target, &staged)?;
+    skyward_block::mount::bind(&staged, target).with_context(|| format!("show {} at {}", staged.display(), target.display()))?;
     Ok(())
 }
 
@@ -291,13 +423,15 @@ fn interface_of(name: &str) -> Option<String> {
     Some(format!("{package}::{interface}"))
 }
 
-/// Copy the labels folder, keeping it readable: the directory and every
-/// file in it are read by services that run as users, and the recovery
-/// service writes under umask 077.
+/// Copy the labels folder, keeping it readable and keeping each entry's
+/// SELinux label: the directory and every file in it are read by services
+/// that run as users, and the services are checked against the labels the
+/// vendor's own files carry. The recovery service writes under umask 077.
 fn copy_labels(from: &Path, to: &Path) -> Result<()> {
     fs::create_dir_all(to).with_context(|| format!("make {}", to.display()))?;
     fs::set_permissions(to, fs::Permissions::from_mode(0o755))
         .with_context(|| format!("open {} to the services", to.display()))?;
+    copy_label(from, to)?;
     for entry in fs::read_dir(from).with_context(|| format!("read {}", from.display()))? {
         let entry = entry?;
         let target = to.join(entry.file_name());
@@ -309,7 +443,31 @@ fn copy_labels(from: &Path, to: &Path) -> Result<()> {
                 .with_context(|| format!("copy {} to {}", entry.path().display(), target.display()))?;
             fs::set_permissions(&target, fs::Permissions::from_mode(0o644))
                 .with_context(|| format!("open {} to the services", target.display()))?;
+            copy_label(&entry.path(), &target)?;
         }
+    }
+    Ok(())
+}
+
+/// Give `to` the SELinux label `from` carries. A copy on the recovery's
+/// temporary filesystem is labeled as temporary storage otherwise, and a
+/// service that reads the copy is refused the file its policy names.
+fn copy_label(from: &Path, to: &Path) -> Result<()> {
+    let named = |path: &Path| CString::new(path.as_os_str().as_bytes()).with_context(|| format!("{} holds a NUL", path.display()));
+    let source = named(from)?;
+    let mut label = vec![0u8; 256];
+    let len = unsafe { libc::lgetxattr(source.as_ptr(), LABEL.as_ptr(), label.as_mut_ptr().cast(), label.len()) };
+    if len < 0 {
+        let e = std::io::Error::last_os_error();
+        if e.raw_os_error() == Some(libc::ENODATA) {
+            return Ok(());
+        }
+        return Err(e).with_context(|| format!("read the label of {}", from.display()));
+    }
+    label.truncate(len as usize);
+    let target = named(to)?;
+    if unsafe { libc::lsetxattr(target.as_ptr(), LABEL.as_ptr(), label.as_ptr().cast(), label.len(), 0) } != 0 {
+        return Err(std::io::Error::last_os_error()).with_context(|| format!("give {} the label of {}", to.display(), from.display()));
     }
     Ok(())
 }
@@ -360,10 +518,40 @@ fn bundle(name: &str) -> Result<Option<PathBuf>> {
         return Ok(None);
     };
     let (offset, length) = image(&file)?;
-    let device = skyward_block::loopdev::attach(&file, offset, length)?;
     fs::create_dir_all(&at).with_context(|| format!("make {}", at.display()))?;
-    skyward_block::mount::mount_ro(&device, &at)?;
-    Ok(Some(at))
+    // Some kernels read a loop device pointed at a file on EROFS as an I/O
+    // error. A copy in the recovery's own memory is read back whole, so the
+    // bundle is tried there when the file itself cannot be read.
+    match open_bundle(&file, offset, length, &at) {
+        Ok(()) => Ok(Some(at)),
+        Err(direct) => {
+            skyward_sys::kmsg(&format!("{name} is not read where it lies, so it is copied: {direct:#}"))?;
+            let copy = Path::new("/tmp").join(format!("{name}.img"));
+            copy_bundle(&file, offset, length, &copy).with_context(|| format!("copy {}", file.display()))?;
+            open_bundle(&copy, 0, length, &at)
+                .with_context(|| format!("open {} from its copy at {}", file.display(), copy.display()))
+                .map(|()| Some(at))
+                .map_err(|e| e.context(format!("reading it where it lies failed too: {direct:#}")))
+        }
+    }
+}
+
+/// Point a loop device at `length` bytes of `file` from `offset`, and mount
+/// what it holds at `at`.
+fn open_bundle(file: &Path, offset: u64, length: u64, at: &Path) -> Result<()> {
+    let device = skyward_block::loopdev::attach(file, offset, length)?;
+    skyward_block::mount::mount_ro(&device, at).map(|_| ())
+}
+
+/// Write `length` bytes of `file` from `offset` into `copy`.
+fn copy_bundle(file: &Path, offset: u64, length: u64, copy: &Path) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut from = fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
+    from.seek(SeekFrom::Start(offset)).with_context(|| format!("seek {}", file.display()))?;
+    let mut to = fs::File::create(copy).with_context(|| format!("create {}", copy.display()))?;
+    std::io::copy(&mut from.take(length), &mut to).with_context(|| format!("copy {} into {}", file.display(), copy.display()))?;
+    to.sync_all().with_context(|| format!("sync {}", copy.display()))?;
+    Ok(())
 }
 
 /// Where the filesystem lies inside a bundle.
