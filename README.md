@@ -37,7 +37,7 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 
 | Device | Codename | Tested system version |
 | --- | --- | --- |
-| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-11 build) |
+| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-13 build) |
 
 Decryption was verified on this phone with a PIN screen lock: the data
 partition is decrypted, the owner's credential-based files open, and internal
@@ -52,11 +52,14 @@ is built from.
 ## What has been tested
 
 Verified on the phone with crDroid 17.0: PIN decryption, internal storage,
-WLAN, MTP, adb, rebooting, and the About page.
+WLAN, MTP, adb, installing a full system update package from internal storage
+and keeping Skyward after it, installing a GApps zip with its own script,
+wireless transfer to a browser, rebooting, and the About page.
 
 Still to be verified on the phone: backup and restore, wipe, the file manager
-and terminal, USB drives and `adb sideload`, the updater, dual boot, and
-mounting, repairing or formatting partitions.
+and terminal, USB drives and `adb sideload`, the updater, dual boot, mounting,
+repairing or formatting partitions, uploading through wireless transfer,
+downloading by link, and the file order.
 
 ## Installing
 
@@ -67,8 +70,8 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.5.zip
-fastboot flash recovery skyward-fuxi-v1.5.img
+unzip skyward-fuxi-v1.6.zip
+fastboot flash recovery skyward-fuxi-v1.6.img
 fastboot reboot recovery
 ```
 

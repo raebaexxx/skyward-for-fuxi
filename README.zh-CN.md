@@ -34,7 +34,7 @@ Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只
 
 | 机型 | 代号 | 测试的系统版本 |
 | --- | --- | --- |
-| 小米 13 | `fuxi` | crDroid 17.0（Android 17，2026-11-11 构建） |
+| 小米 13 | `fuxi` | crDroid 17.0（Android 17，2026-11-13 构建） |
 
 已在这台手机上使用 PIN 锁屏验证解密：data 分区成功解密，机主的凭据加密文件可以打开，内部存储可以读取。
 
@@ -42,17 +42,17 @@ Skyward 是使用 Rust 编写的 recovery，从零开始编写。这个分支只
 
 ## 已验证的内容
 
-已在 crDroid 17.0 的手机上验证：PIN 解密、内部存储、WLAN、MTP、adb、重启，以及「关于」页面。
+已在 crDroid 17.0 的手机上验证：PIN 解密、内部存储、WLAN、MTP、adb、从内部存储安装完整系统更新包（并在安装后自动回刷 Skyward）、用自带脚本安装 GApps 包、无线传输到浏览器、重启，以及「关于」页面。
 
-仍需在手机上验证：备份与恢复、清除数据、文件管理和终端、U 盘与 `adb sideload`、更新、双系统，以及分区的挂载、修复和格式化。
+仍需在手机上验证：备份与恢复、清除数据、文件管理和终端、U 盘与 `adb sideload`、更新、双系统、分区的挂载/修复/格式化、无线传输的上传、从网址下载，以及文件排序。
 
 ## 安装
 
 Skyward 需要已解锁的 bootloader。从本仓库的 [Releases](https://github.com/raebaexxx/skyward-for-fuxi/releases) 下载 zip（由 `fuxi-v*` 标签发布），文件名形如 `skyward-fuxi-<版本>`。使用 `SHA256SUMS.txt` 核对并解压之后，在手机处于 fastboot 模式的时候，把其中的镜像刷入 recovery 分区：
 
 ```sh
-unzip skyward-fuxi-v1.5.zip
-fastboot flash recovery skyward-fuxi-v1.5.img
+unzip skyward-fuxi-v1.6.zip
+fastboot flash recovery skyward-fuxi-v1.6.img
 fastboot reboot recovery
 ```
 
