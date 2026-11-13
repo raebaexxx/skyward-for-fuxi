@@ -57,18 +57,24 @@ recovery is kept as the `fuxi-a17-recovery.img` asset of this repository's
 system: its libc++ cannot load the Android 17 vendor binaries the key service
 is built from.
 
+The secure stack also loads the VNDK libraries a port's older vendor names, and
+speaks to boot control over HIDL as well as AIDL. NexusHyper's Android 13 vendor
+needs both; this image has not been run on NexusHyper yet.
+
 ## What has been tested
 
 Verified on the phone with crDroid 17.0: PIN decryption, internal storage,
-WLAN, MTP, adb, installing a full system update package from internal storage
-and keeping Skyward after it, installing a GApps zip with its own script,
-wireless transfer to a browser, rebooting, and the About page.
+WLAN and the kept network joined by itself, MTP, adb, installing a full system
+update package from internal storage and keeping Skyward after it, installing a
+GApps zip with its own script, wireless transfer to a browser, the page for a
+passed link on port 8081, rebooting, and the About page.
 
-Still to be verified on the phone: the browser, the code on the download page,
-the kept WLAN, backup and restore, wipe, the file manager and terminal, USB
-drives and `adb sideload`, the updater, dual boot, mounting, repairing or
-formatting partitions, uploading through wireless transfer, downloading by
-link, and the file order.
+Still to be verified on the phone: the browser, taking a link from `link.txt`,
+backup and restore, wipe, the file manager and terminal, USB drives and `adb
+sideload`, the updater, dual boot, mounting, repairing or formatting partitions,
+uploading through wireless transfer, downloading by link, and the file order. A
+download needs the server to say how long the file is; a page that gives no
+length is refused.
 
 ## Installing
 
@@ -79,8 +85,8 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.6.zip
-fastboot flash recovery skyward-fuxi-v1.6.img
+unzip skyward-fuxi-v1.7.zip
+fastboot flash recovery skyward-fuxi-v1.7.img
 fastboot reboot recovery
 ```
 
@@ -169,8 +175,8 @@ the computer:
 
 ```sh
 # SKYWARD_VERSION makes the build name the release it is for; a local build
-# without it uses the workspace version, 1.6.0.
-SKYWARD_VERSION=1.6 \
+# without it uses the workspace version, 1.7.0.
+SKYWARD_VERSION=1.7 \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release \
