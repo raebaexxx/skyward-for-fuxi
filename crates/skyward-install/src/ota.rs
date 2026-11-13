@@ -46,9 +46,19 @@ pub enum Log {
     Overwriting,
     /// It started reading back the `index`th partition it wrote, from 0.
     Hashing { index: usize, partition: String },
+    /// The share of the payload it has taken so far, in whole percent, as
+    /// it says every ten percent.
+    Progress(u32),
 }
 
 pub fn log(line: &str) -> Option<Log> {
+    if let Some(rest) = after(line, "overall progress ") {
+        if let Some(number) = rest.split('%').next() {
+            if let Ok(at) = number.trim().parse::<u32>() {
+                return Some(Log::Progress(at.min(100)));
+            }
+        }
+    }
     if let Some(rest) = after(line, "PartitionInfo new ") {
         let (name, _) = rest.split_once(' ')?;
         return Some(Log::Partition(name.to_string()));
@@ -64,6 +74,23 @@ pub fn log(line: &str) -> Option<Log> {
 
 fn after<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
     line.find(marker).map(|at| &line[at + marker.len()..])
+}
+
+/// How many payload bytes the writing step has behind it: the bytes read so
+/// far through the package's filesystem, and no more than ten percent beyond
+/// what update_engine itself says it has taken. Reads reach ahead of the
+/// writing — the zip's table at the end of the file is read before any of
+/// the payload is written — so the furthest read alone would show the step
+/// done before it began.
+pub fn written(served: u64, offset: u64, total: u64, reported: Option<u32>) -> u64 {
+    if total == 0 {
+        return 0;
+    }
+    let read = served.saturating_sub(offset).min(total);
+    let Some(at) = reported else { return read };
+    let floor = total.saturating_mul(u64::from(at.min(100))) / 100;
+    let ceiling = total.saturating_mul(u64::from(at.saturating_add(10).min(100))) / 100;
+    read.clamp(floor, ceiling)
 }
 
 /// What an update_engine error code comes down to for whoever installs.
@@ -159,6 +186,32 @@ mod tests {
         );
         assert_eq!(log("[INFO:delta_performer.cc(267)] PartitionInfo old odm sha256: 00 size: 4"), None);
         assert_eq!(log("[INFO:delta_performer.cc(108)] Completed 10/400 operations (2%)"), None);
+    }
+
+    #[test]
+    fn a_progress_line_gives_the_share_taken() {
+        assert_eq!(
+            log("[INFO:delta_performer.cc(120)] Completed 394/3496 operations (11%), 251101184/2510975561 bytes downloaded (10%), overall progress 10%"),
+            Some(Log::Progress(10))
+        );
+        assert_eq!(log("[INFO:delta_performer.cc(120)] overall progress 100%"), Some(Log::Progress(100)));
+        assert_eq!(log("overall progress 140%"), Some(Log::Progress(100)), "a share stops at all of it");
+    }
+
+    #[test]
+    fn the_writing_share_follows_the_engine_and_not_the_furthest_read() {
+        let (offset, total) = (4914, 2_510_975_561u64);
+        // The zip's own table is read at the end before the writing starts:
+        // the furthest read is the whole file, the share is not.
+        assert_eq!(written(total + 4914, offset, total, Some(0)), total * 10 / 100);
+        assert_eq!(written(total + 4914, offset, total, Some(40)), total * 50 / 100);
+        // A read that runs on smoothly leads the engine by less than a step.
+        assert_eq!(written(offset + total * 43 / 100, offset, total, Some(40)), total * 43 / 100);
+        // The engine's word is a floor of its own.
+        assert_eq!(written(offset, offset, total, Some(70)), total * 70 / 100);
+        // With nothing said at all, the furthest read is all there is.
+        assert_eq!(written(offset + total / 2, offset, total, None), total / 2);
+        assert_eq!(written(offset, offset, 0, Some(10)), 0);
     }
 
     #[test]
