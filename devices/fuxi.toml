@@ -142,14 +142,27 @@ user = "system"
 groups = ["system"]
 
 # The boot control, which says which slot the bootloader starts next and
-# switches it. It comes last: the phone is usable without it. crDroid's is
-# the newer kind, and the vendor's own program serves it.
+# switches it. It comes last: the phone is usable without it. crDroid's
+# vendor carries the newer kind; a port whose vendor is the older Qualcomm
+# one carries the HIDL kind instead, and only one of the two is there.
 [[service]]
 path = "/vendor/bin/hw/android.hardware.boot-service.qti"
 libraries = ["/system/lib64", "/vendor/lib64"]
 ready_service = "android.hardware.boot.IBootControl/default"
 user = "root"
 groups = ["root"]
+optional = true
+
+# The older kind of the boot control, as the Android 13 vendor partition of
+# a port carries it: the HIDL 1.2 service, which the phone's own update
+# engine reads too.
+[[service]]
+path = "/vendor/bin/hw/android.hardware.boot@1.2-service"
+libraries = ["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
+ready_hardware_service = "android.hardware.boot@1.2::IBootControl/default"
+user = "root"
+groups = ["root"]
+optional = true
 
 # The secure world's applets, among them the keymaster and gatekeeper ones,
 # are on the modem partition, which the phone's own boot mounts at

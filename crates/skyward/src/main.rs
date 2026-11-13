@@ -548,7 +548,13 @@ fn bring_up(cfg: &DeviceConfig, slot: skyward_vab::Slot) -> Result<()> {
         let described = secure::publish_descriptions(&registering, &files)?;
         skyward_sys::kmsg(&format!("{described} of the phone's own service descriptions published"))?;
     }
-    let libraries = secure::libraries()?;
+    let libraries = match secure::libraries() {
+        Ok(libraries) => libraries,
+        Err(e) => {
+            skyward_sys::kmsg(&format!("the phone's own libraries are not open: {e:#}"))?;
+            None
+        }
+    };
     if let Some(dir) = &libraries {
         skyward_sys::kmsg(&format!("the phone's own libraries are at {}", dir.display()))?;
     }

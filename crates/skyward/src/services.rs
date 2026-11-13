@@ -5,11 +5,11 @@ use skyward_sys::ueventd;
 use skyward_vab::Mounted;
 use std::collections::{BTreeSet, HashMap};
 use std::fs;
-use std::io;
+use std::io::{self, BufRead, BufReader};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -42,6 +42,10 @@ pub fn start(services: &[Service], libraries: Option<&Path>) -> Result<()> {
     let known = ueventd::accounts(&ueventd::PASSWD_FILES.iter().chain(&ueventd::GROUP_FILES).copied().collect::<Vec<_>>());
     for s in services {
         if !Path::new(&s.path).is_file() {
+            if s.optional {
+                skyward_sys::kmsg(&format!("{} is not on this phone, and is passed over", s.path))?;
+                continue;
+            }
             bail!("{} is missing; is its partition mounted?", s.path);
         }
         let mut s = s.clone();
@@ -207,11 +211,44 @@ fn supervise(s: &Service, who: &Credentials) -> ! {
     }
 }
 
-/// Start the program and wait for it to end.
+/// The most lines of what a program printed to its standard error that
+/// are kept to say why it ended.
+const SAID_MAX: usize = 20;
+
+/// Read what a program prints to its standard error, keeping the last
+/// [`SAID_MAX`] lines: a program that ends before it can log its reason
+/// says it only there, as a loader does when it cannot find a library.
+pub(crate) fn keep_stderr(child: &mut Child) -> Option<thread::JoinHandle<Vec<String>>> {
+    let err = child.stderr.take()?;
+    Some(thread::spawn(move || {
+        let mut kept: Vec<String> = Vec::new();
+        for line in BufReader::new(err).lines() {
+            let Ok(line) = line else { break };
+            if kept.len() == SAID_MAX {
+                kept.remove(0);
+            }
+            kept.push(line);
+        }
+        kept
+    }))
+}
+
+/// What [`keep_stderr`] kept, after a program's end: `: …`, or nothing.
+pub(crate) fn said(kept: Option<thread::JoinHandle<Vec<String>>>) -> String {
+    let Some(kept) = kept else { return String::new() };
+    match kept.join() {
+        Ok(lines) if !lines.is_empty() => format!(": {}", lines.join("; ")),
+        _ => String::new(),
+    }
+}
+
+/// Start the program and wait for it to end, saying why where it says so
+/// itself.
 fn run(s: &Service, who: &Credentials) -> Result<String> {
-    let mut child = command(s, who).spawn().with_context(|| format!("start {}", s.path))?;
+    let mut child = command(s, who).stderr(Stdio::piped()).spawn().with_context(|| format!("start {}", s.path))?;
+    let kept = keep_stderr(&mut child);
     let status = child.wait().context("wait for it")?;
-    Ok(format!("pid {} ended: {status}", child.id()))
+    Ok(format!("pid {} ended: {status}{}", child.id(), said(kept)))
 }
 
 /// The program as it is started: with what it is given, from the top of the

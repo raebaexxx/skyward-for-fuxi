@@ -386,6 +386,12 @@ pub struct Service {
     /// once it has ended, and it has to end well.
     #[serde(default)]
     pub oneshot: bool,
+    /// The program may be absent from this phone, and the phone still comes
+    /// up without it: some builds of a phone's vendor partition carry a
+    /// newer or an older kind of a service, and the configuration names
+    /// both.
+    #[serde(default)]
+    pub optional: bool,
     /// A property the program sets once it is ready for the rest. Programs
     /// are started in the order they are written, and one that says it has
     /// something to wait for holds up the ones after it.
@@ -722,6 +728,8 @@ mod tests {
             "/vendor/bin/qseecomd",
             "/vendor/bin/hw/android.hardware.security.keymint-service-qti",
             "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti",
+            "/vendor/bin/hw/android.hardware.boot-service.qti",
+            "/vendor/bin/hw/android.hardware.boot@1.2-service",
         ] {
             assert!(paths.contains(&needed), "{needed} is part of the secure stack");
         }

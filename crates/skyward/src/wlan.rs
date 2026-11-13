@@ -52,6 +52,19 @@ const VENDOR_NODE: &str = "/dev/binderfs/vndbinder";
 /// How long the vendor service directory may take to answer once started.
 const DIRECTORY_WAIT: Duration = Duration::from_secs(5);
 
+/// What the phone's own init gives every program it starts: the folder of
+/// the system's libraries, of its storage and of its temporary files. The
+/// service directory and the supplicant look some of these up, and one that
+/// finds none of them can stop on the spot.
+const ENVIRONMENT: [(&str, &str); 6] = [
+    ("ANDROID_ROOT", "/system"),
+    ("ANDROID_DATA", "/data"),
+    ("ANDROID_STORAGE", "/storage"),
+    ("ANDROID_ART_ROOT", "/apex/com.android.art"),
+    ("EXTERNAL_STORAGE", "/sdcard"),
+    ("TMPDIR", "/tmp"),
+];
+
 /// How long the driver may take to make its interface, the chip's firmware
 /// loading meanwhile.
 const INTERFACE_WAIT: Duration = Duration::from_secs(20);
@@ -420,19 +433,25 @@ impl Station {
         if let Some(dir) = &self.libraries {
             path.push(dir.to_string_lossy().into_owned());
         }
-        let mut child = Process::new(program)
+        let mut command = Process::new(program);
+        command
             .arg(VENDOR_DRIVER)
             .env("LD_LIBRARY_PATH", path.join(":"))
+            .envs(ENVIRONMENT)
             .current_dir("/")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .with_context(|| format!("start {program}"))?;
+            .stderr(Stdio::piped());
+        let mut child = command.spawn().with_context(|| format!("start {program}"))?;
+        let kept = crate::services::keep_stderr(&mut child);
         if let Err(e) = wait_for_directory(DIRECTORY_WAIT) {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(e);
+            let said = crate::services::said(kept);
+            if said.is_empty() {
+                return Err(e);
+            }
+            bail!("{e:#}{said}");
         }
         Ok(Some(child))
     }
@@ -963,27 +982,30 @@ fn start_supplicant(cfg: &Config, libraries: Option<&Path>) -> Result<Child> {
     if let Some(dir) = libraries {
         path.push(dir.to_string_lossy().into_owned());
     }
-    let mut child = Process::new(&cfg.supplicant)
+    let mut command = Process::new(&cfg.supplicant);
+    command
         .args(["-i", &cfg.interface, "-D", "nl80211", "-c"])
         .arg(&settings)
         .env("LD_LIBRARY_PATH", path.join(":"))
+        .envs(ENVIRONMENT)
         .current_dir("/")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .with_context(|| format!("start {}", cfg.supplicant))?;
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().with_context(|| format!("start {}", cfg.supplicant))?;
+    let mut kept = crate::services::keep_stderr(&mut child);
     let until = Instant::now() + SOCKET_WAIT;
     while !socket.exists() {
         if let Some(status) = child.try_wait().context("look at wpa_supplicant")? {
-            bail!("wpa_supplicant ended as it started: {status}");
+            bail!("wpa_supplicant ended as it started: {status}{}", crate::services::said(kept.take()));
         }
         if Instant::now() >= until {
             end(&mut child, None);
-            bail!("wpa_supplicant opened no control socket in {} seconds", SOCKET_WAIT.as_secs());
+            bail!("wpa_supplicant opened no control socket in {} seconds{}", SOCKET_WAIT.as_secs(), crate::services::said(kept.take()));
         }
         thread::sleep(Duration::from_millis(100));
     }
+    drop(kept);
     Ok(child)
 }
 

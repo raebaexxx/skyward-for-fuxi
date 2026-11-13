@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 /// Where a phone keeps the bundles of shared libraries its own partitions
 /// were built against.
-const BUNDLE_DIRS: [&str; 4] = ["/mnt/system_ext/apex", "/mnt/system/system/apex", "/mnt/product/apex", "/vendor/apex"];
+const BUNDLE_DIRS: [&str; 5] = ["/mnt/system_ext/apex", "/system_ext/apex", "/mnt/system/system/apex", "/mnt/product/apex", "/vendor/apex"];
 
 /// The file inside a bundle that holds its filesystem. It is stored whole,
 /// so the bundle can be opened where it lies.
@@ -317,8 +317,35 @@ fn copy_labels(from: &Path, to: &Path) -> Result<()> {
 /// Open the bundle of libraries the phone's own partitions were built
 /// against and give the directory they are in. A phone whose partitions
 /// need no bundle has none to open.
-pub fn libraries() -> Result<Option<PathBuf>> {    let Some(version) = skyward_sys::prop(VENDOR_INTERFACE) else { return Ok(None) };
+pub fn libraries() -> Result<Option<PathBuf>> {
+    let Some(version) = vendor_interface() else {
+        skyward_sys::kmsg("the phone names no vendor interface version, so no bundle of its own libraries is opened")?;
+        return Ok(None);
+    };
     Ok(bundle(&format!("com.android.vndk.v{version}"))?.map(|at| at.join(BUNDLE_LIBS)))
+}
+
+/// Which build of the vendor interface the installed vendor partition is
+/// made for: the property the recovery runs with, or else the one the
+/// vendor's own property files name, which a recovery's init does not read.
+/// The vendor partition of an older build is where the programs of the
+/// secure stack find the libraries they were linked against.
+fn vendor_interface() -> Option<String> {
+    if let Some(version) = skyward_sys::prop(VENDOR_INTERFACE) {
+        return Some(version);
+    }
+    ["/vendor/build.prop", "/vendor/default.prop"].iter().find_map(|path| {
+        let text = fs::read_to_string(path).ok()?;
+        version_in(&text)
+    })
+}
+
+/// The vendor interface version a property file names, if it names one.
+fn version_in(text: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let (name, value) = line.split_once('=')?;
+        (name.trim() == VENDOR_INTERFACE).then(|| value.trim().to_string()).filter(|v| !v.is_empty())
+    })
 }
 
 /// Open the bundle of this name where it lies, and give where it is. A
@@ -532,5 +559,18 @@ fn answering_again(was: Option<u32>) -> Result<()> {
             anyhow::bail!("the service directory did not come back");
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_vendor_interface_version_is_read_from_the_vendor_s_property_file() {
+        assert_eq!(version_in("ro.vndk.version=33\n").as_deref(), Some("33"));
+        assert_eq!(version_in("ro.vndk.version = 33 \n").as_deref(), Some("33"));
+        assert_eq!(version_in("ro.vndk.version=\n"), None, "a version left empty names none");
+        assert_eq!(version_in("ro.other=33\n"), None);
     }
 }
