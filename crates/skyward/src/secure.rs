@@ -331,15 +331,24 @@ fn prepare_service_contexts() -> Result<()> {
         Path::new(SYSTEM_EXT_SERVICE),
         Path::new(PRODUCT_SERVICE),
     ])?;
+    // One file that cannot be relabeled must not keep the others from
+    // being shown: the vendor's file is the one that carries the older
+    // hardware services, and the platform's already names the newer ones.
+    let show = |target: &Path, content: &str, name: &str| -> Result<()> {
+        if let Err(e) = show_context(target, content, name) {
+            skyward_sys::kmsg(&format!("{} stays as it is: {e:#}", target.display()))?;
+        }
+        Ok(())
+    };
     let primary = Path::new(PLAT_SERVICE_PRIMARY);
     let root = Path::new(PLAT_SERVICE);
     if primary.is_file() {
-        show_context(primary, &merged, "plat_service_contexts")?;
+        show(primary, &merged, "plat_service_contexts")?;
         if root.is_file() {
-            show_context(root, "", "plat_service_contexts.root")?;
+            show(root, "", "plat_service_contexts.root")?;
         }
     } else if root.is_file() {
-        show_context(root, &merged, "plat_service_contexts")?;
+        show(root, &merged, "plat_service_contexts")?;
     }
     for (target, name) in [
         (INSTALLED_SYSTEM_EXT_SERVICE, "system_ext_service_contexts"),
@@ -353,8 +362,29 @@ fn prepare_service_contexts() -> Result<()> {
         (INSTALLED_PRODUCT_HWSERVICE, "product_hwservice_contexts"),
         (INSTALLED_ODM_HWSERVICE, "odm_hwservice_contexts"),
     ] {
-        show_context(Path::new(target), "", name)?;
+        show(Path::new(target), "", name)?;
     }
+    Ok(())
+}
+
+/// Let the kernel read the files its loop devices are pointed at. SELinux
+/// refuses the kernel the file descriptors a recovery opens (`fd use`), and
+/// the loop device then reads every sector as an I/O error. The recovery
+/// already runs its own programs permissively and is a root shell on adb;
+/// the phone's own service directories are the only thing that keeps the
+/// stricter checks useful here.
+pub fn permit_loop_devices() -> Result<()> {
+    let path = Path::new("/sys/fs/selinux/enforce");
+    let enforcing = match fs::read_to_string(path) {
+        Ok(text) => text.trim() == "1",
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+    };
+    if !enforcing {
+        return Ok(());
+    }
+    fs::write(path, b"0").with_context(|| format!("make SELinux permissive at {}", path.display()))?;
+    skyward_sys::kmsg("SELinux is permissive so the kernel can read the loop devices")?;
     Ok(())
 }
 
@@ -525,7 +555,16 @@ fn bundle(name: &str) -> Result<Option<PathBuf>> {
     match open_bundle(&file, offset, length, &at) {
         Ok(()) => Ok(Some(at)),
         Err(direct) => {
-            skyward_sys::kmsg(&format!("{name} is not read where it lies, so it is copied: {direct:#}"))?;
+            skyward_sys::kmsg(&format!("{name} is not read where it lies: {direct:#}"))?;
+            // SELinux refuses the kernel the descriptors a recovery opens
+            // for a loop device; with the check relaxed the same file reads
+            // whole.
+            if let Err(e) = permit_loop_devices() {
+                skyward_sys::kmsg(&format!("SELinux was not made permissive: {e:#}"))?;
+            } else if open_bundle(&file, offset, length, &at).is_ok() {
+                return Ok(Some(at));
+            }
+            skyward_sys::kmsg(&format!("{name} is copied into the recovery's own memory"))?;
             let copy = Path::new("/tmp").join(format!("{name}.img"));
             copy_bundle(&file, offset, length, &copy).with_context(|| format!("copy {}", file.display()))?;
             open_bundle(&copy, 0, length, &at)
