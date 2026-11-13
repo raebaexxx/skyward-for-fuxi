@@ -5,7 +5,7 @@
 //! a time zone, a part or a place by its name, so a later version that lists
 //! them otherwise reads them the same.
 
-use crate::app::{Place, State, SCREEN_OFF, TIME_ZONES};
+use crate::app::{Place, SortKey, State, SCREEN_OFF, TIME_ZONES};
 use crate::Lang;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -52,6 +52,27 @@ pub struct Settings {
     pub install: Install,
     pub backup: Backup,
     pub logs: Logs,
+    /// The order the file manager lists entries in.
+    pub sort: Sort,
+}
+
+/// The order the file manager lists entries in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Sort {
+    /// What the entries are put in order by: `name`, `size` or `modified`.
+    pub key: String,
+    /// Turned round: from Z to A, or the largest or newest first.
+    pub desc: bool,
+    /// Folders stand before files.
+    pub folders: bool,
+}
+
+impl Default for Sort {
+    /// The stock file manager's own order: folders first, then by name.
+    fn default() -> Self {
+        Sort { key: SortKey::Name.tag().to_string(), desc: false, folders: true }
+    }
 }
 
 /// The install page's options.
@@ -138,6 +159,7 @@ impl Settings {
                 verify: state.verify,
             },
             logs: Logs { kinds: names(&state.logs, &LOGS), to: LOG_PLACES[state.logs_to].to_string() },
+            sort: Sort { key: state.sort.tag().to_string(), desc: state.sort_desc, folders: state.folders_first },
         }
     }
 
@@ -198,6 +220,9 @@ impl Settings {
         if let Some(at) = LOG_PLACES.iter().position(|place| *place == self.logs.to) {
             state.logs_to = at;
         }
+        state.sort = SortKey::of(&self.sort.key).unwrap_or_default();
+        state.sort_desc = self.sort.desc;
+        state.folders_first = self.sort.folders;
     }
 }
 
@@ -214,7 +239,7 @@ fn picked<const N: usize>(kept: &[String], all: &[&str; N]) -> [bool; N] {
 /// What the settings file held as the recovery started.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kept {
-    Settings(Settings),
+    Settings(Box<Settings>),
     /// No settings: no file, or one that does not read as settings.
     Nothing,
     /// Where the file is could not be read; it is left alone this time.
@@ -225,7 +250,7 @@ impl Kept {
     /// The settings the file held, if it held any.
     pub fn settings(&self) -> Option<&Settings> {
         match self {
-            Kept::Settings(settings) => Some(settings),
+            Kept::Settings(settings) => Some(settings.as_ref()),
             Kept::Nothing | Kept::Unreadable => None,
         }
     }
@@ -246,7 +271,7 @@ pub struct Keeper {
 impl Keeper {
     pub fn new(kept: &Kept) -> Keeper {
         let holds = match kept {
-            Kept::Settings(settings) => Some(Some(settings.clone())),
+            Kept::Settings(settings) => Some(Some(settings.as_ref().clone())),
             Kept::Nothing => Some(None),
             Kept::Unreadable => None,
         };
@@ -317,6 +342,9 @@ mod tests {
             verify: false,
             logs: [false, true],
             logs_to: 1,
+            sort: SortKey::Modified,
+            sort_desc: true,
+            folders_first: false,
             ..State::default()
         };
         let kept = Settings::read(&Settings::of(&state).text()).unwrap();
@@ -376,7 +404,7 @@ mod tests {
 
     #[test]
     fn changed_settings_are_written_once_they_have_stood_for_a_moment() {
-        let mut keeper = Keeper::new(&Kept::Settings(Settings::default()));
+        let mut keeper = Keeper::new(&Kept::Settings(Box::default()));
         assert_eq!(keeper.due(Settings::default(), 0), None, "what the file holds is not written again");
         let dark = Settings { dark: true, ..Settings::default() };
         assert_eq!(keeper.due(dark.clone(), 1_000), None);

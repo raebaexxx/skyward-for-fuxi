@@ -25,7 +25,9 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 - Backup and restore
 - Wipe data and factory reset
 - Mount partitions, repair and format filesystems
-- File manager and terminal
+- File manager and terminal, with the list ordered by name, size or date
+- Wireless transfer: internal storage in a browser on the network
+- Download a file from an address into internal storage
 - WLAN
 - MTP file transfer, adb and fastbootd
 - Reboot to system, recovery, fastboot, bootloader or EDL, and switch slots

@@ -1437,6 +1437,11 @@ pub fn transfer_left_on(l: Lang, why: &str) -> String {
     tr!(l, "关闭文件传输失败：{why}", "關閉檔案傳輸失敗：{why}", "Couldn't turn off file transfer: {why}")
 }
 
+/// The server for the files did not start, as the system says why.
+pub fn wireless_failed(l: Lang, why: &str) -> String {
+    tr!(l, "无法开启无线传输：{why}", "無法開啟無線傳輸：{why}", "Couldn't start wireless transfer: {why}")
+}
+
 /// File transfer stopped on its own, as the system says why.
 pub fn transfer_stopped(l: Lang, why: &str) -> String {
     tr!(l, "文件传输已停止：{why}", "檔案傳輸已停止：{why}", "File transfer stopped: {why}")

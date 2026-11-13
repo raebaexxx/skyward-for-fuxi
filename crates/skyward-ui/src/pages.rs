@@ -1,7 +1,8 @@
 use crate::app::{
-    Action, BackupAt, BackupEnd, BackupJob, Check, ClashChoice, Confirm, Damage, Data, Dock, DownloadEnd, EraseStop, Field, FileKind,
+    Action, BackupAt, BackupEnd, BackupJob, Check, ClashChoice, Confirm, Damage, Data, Dock, DownloadEnd, EraseStop, Fetch, Field, FileKind,
     FileOp, FileTask, Fold, Folder, Frame, FsAction, FsChoice, FsRow, Have, HeroArt, Hit, Install, JobEnd, Keys, Pick, Place, Rows, Screen,
-    SkywardCheck, SkywardEnd, SkywardJob, SkywardStage, Slider, Source, State, Switch, SystemsWork, Target, UsbDrive, UsbLink, Wipe, ADDABLE,
+    SkywardCheck, SkywardEnd, SkywardJob, SkywardStage, Slider, SortKey, Source, State, Switch, SystemsWork, Target, UsbDrive, UsbLink, Wipe,
+    ADDABLE,
     BACKUP_PARTS, DATA_ERASED, DATA_PARTITION, DOWNLOADS, FASTBOOT_CHOICES, SCREEN_OFF, TARGETS, TIME_ZONES, USB_DRIVE_UNREADABLE,
     USB_DRIVE_WANTED, WIPES, installs, starting,
 };
@@ -109,6 +110,9 @@ pub fn render(screen: Screen, cx: &Ctx) -> Frame {
         Screen::WlanPassword => wlan_password(cx),
         Screen::WlanNetwork => wlan_network(cx),
         Screen::WlanAdd => wlan_add(cx),
+        Screen::Wireless => wireless(cx),
+        Screen::Fetch => fetch(cx),
+        Screen::Sort => sort(cx),
     }
 }
 
@@ -698,6 +702,7 @@ pub fn decrypt(cx: &Ctx) -> Frame {
             l.pick(["解密 data 分区", "解密 data 分割區", "Decrypt the data partition"]),
             Some(l.pick(["正在读取锁屏方式", "正在讀取螢幕鎖定方式", "Reading the screen lock"])),
             None,
+            matches!(cx.state.data, Data::Opening).then_some(cx.state.opening),
         ),
         Data::Open => data_status(
             cx,
@@ -706,8 +711,9 @@ pub fn decrypt(cx: &Ctx) -> Frame {
             l.pick(["data 分区已解密", "data 分割區已解密", "The data partition is decrypted"]),
             Some(l.pick(["你可以在「文件管理」中查看本机文件", "你可以在「檔案管理」中查看本機檔案", "You can see the phone's files in File manager"])),
             None,
+            None,
         ),
-        Data::Failed(why) => data_status(cx, c, Icon::Lock, l.pick(["未能打开 data 分区", "無法開啟 data 分割區", "Couldn't open the data partition"]), None, Some(why)),
+        Data::Failed(why) => data_status(cx, c, Icon::Lock, l.pick(["未能打开 data 分区", "無法開啟 data 分割區", "Couldn't open the data partition"]), None, Some(why), None),
         Data::Erased => data_status(
             cx,
             c,
@@ -715,13 +721,14 @@ pub fn decrypt(cx: &Ctx) -> Frame {
             l.pick(DATA_ERASED),
             Some(l.pick(["下次开机时将重新创建", "下次開機時將重新建立", "It's made anew when the phone next starts"])),
             None,
+            None,
         ),
     }
 }
 
 /// Where the partition stands, under its sign: a line on it, or why it
 /// did not open and a way to try again; then the way off the page.
-fn data_status(cx: &Ctx, mut c: Canvas, icon: Icon, title: &str, note: Option<&str>, why: Option<&str>) -> Frame {
+fn data_status(cx: &Ctx, mut c: Canvas, icon: Icon, title: &str, note: Option<&str>, why: Option<&str>, progress: Option<f32>) -> Frame {
     let (t, f, l) = (cx.t, cx.f, cx.state.lang);
     let m = &t.m;
     let x = m.w as f32 / 2.0;
@@ -731,6 +738,9 @@ fn data_status(cx: &Ctx, mut c: Canvas, icon: Icon, title: &str, note: Option<&s
     c.text_center(&f.heading, title, x, sign_cy + m.dp(64.0), m.dp(24.0), t.pal.text);
     if let Some(note) = note {
         c.text_center(&f.body, note, x, sign_cy + m.dp(98.0), m.sub_px, t.pal.subtitle);
+    }
+    if let Some(value) = progress {
+        widgets::progress_bar(&mut c, t, x - m.dp(80.0), sign_cy + m.dp(122.0), m.dp(160.0), value);
     }
     let mut out = Vec::new();
     if let Some(why) = why {
@@ -2201,26 +2211,33 @@ const STOP: Text = ["停止", "停止", "Stop"];
 
 /// Tools for the experienced.
 pub fn advanced(cx: &Ctx) -> Frame {
-    let (t, f, l) = (cx.t, cx.f, cx.state.lang);
-    let mut c = page(cx);
+    let (t, f, s, l) = (cx.t, cx.f, cx.state, cx.state.lang);
+    let mut c = long_page(cx);
     let top = t.m.content_top;
+    let wireless = if s.wireless { l.pick(["开", "開", "On"]) } else { l.pick(["关", "關", "Off"]) };
     let tools = widgets::list(&mut c, t, f, top, &[
         Row::new(l.pick(FILES)).icon(BLUE, Icon::Folder),
+        Row::new(l.pick(SORT)).icon(SLATE, Icon::Gear),
         Row::new(l.pick(TERMINAL)).icon(SLATE, Icon::Terminal),
         Row::new(l.pick(RELABEL)).icon(PURPLE, Icon::Shield),
         Row::new(l.pick(FILESYSTEMS)).icon(RED, Icon::Mount),
         Row::new(l.pick(LOGS)).icon(ORANGE, Icon::Log),
         Row::new(l.pick(UPDATE)).icon(GREEN, Icon::Layers).trail(Trail::Value(update_value(cx))),
+        Row::new(l.pick(WIRELESS)).icon(GREEN, Icon::Wlan).trail(Trail::Value(wireless)),
+        Row::new(l.pick(FETCH)).icon(BLUE, Icon::Globe),
     ]);
     let out = hits(&tools.rows, &[
         Action::Open(Screen::Files),
+        Action::Open(Screen::Sort),
         Action::Open(Screen::Terminal),
         Action::Open(Screen::Relabel),
         Action::Open(Screen::Filesystems),
         Action::Open(Screen::Logs),
         Action::Open(Screen::Update),
+        Action::Open(Screen::Wireless),
+        Action::Open(Screen::Fetch),
     ]);
-    Frame::new(t, c, out, l.pick(ADVANCED), top)
+    Frame::new(t, fit(c, t, tools.bottom), out, l.pick(ADVANCED), top)
 }
 
 const RELABEL: Text = ["修复 SELinux 上下文", "修復 SELinux 上下文", "Fix SELinux contexts"];
@@ -3089,6 +3106,154 @@ pub fn wlan_network(cx: &Ctx) -> Frame {
     out.extend(hits(&forget.rows, &[Action::LeaveNetwork]));
     Frame::new(t, fit(c, t, forget.bottom), out, title, top)
 }
+
+/// The files in internal storage offered to the network the phone is on:
+/// the switch, the address a browser there opens, and how many requests it
+/// has answered.
+pub fn wireless(cx: &Ctx) -> Frame {
+    let (t, f, s, l) = (cx.t, cx.f, cx.state, cx.state.lang);
+    let mut c = long_page(cx);
+    let mut out = Vec::new();
+    let top = t.m.content_top;
+    let switch = widgets::list(&mut c, t, f, top, &[Row::new(l.pick(WIRELESS)).icon(GREEN, Icon::Wlan).trail(Trail::Switch(s.wireless))]);
+    out.extend(hits(&switch.rows, &[Action::Toggle(Switch::Wireless)]));
+    let mut y = switch.bottom;
+    if !s.wireless {
+        let note = l.pick([
+            "开启后，同一 WLAN 下的设备用浏览器打开这里给出的地址，就能查看、下载和上传内部存储中的文件。",
+            "開啟後，同一 Wi-Fi 下的裝置用瀏覽器開啟這裡給出的位址，就能檢視、下載和下載內部儲存空間中的檔案。",
+            "When on, a device on the same network opens the address given here in a browser to see, take and put files in internal storage.",
+        ]);
+        y = widgets::footnote(&mut c, t, f, y, note);
+    } else if !s.data.storage_open() {
+        let note = l.pick([
+            "正在等待 data 分区打开：打开后会自动开始，无需再操作。",
+            "正在等待 data 分割區開啟：開啟後會自動開始，無需再操作。",
+            "Waiting for the data partition to open: it starts on its own once it does.",
+        ]);
+        y = widgets::footnote(&mut c, t, f, y, note);
+    } else if let Some(url) = &s.wireless_url {
+        let served = s.wireless_served.to_string();
+        let rows = [
+            Row::new(url.as_str()).icon(BLUE, Icon::Globe).subtitle(l.pick(["在浏览器中打开", "在瀏覽器中開啟", "Open it in a browser"])),
+            Row::new(l.pick(["已回应", "已回應", "Answered"])).trail(Trail::Value(served.as_str())),
+        ];
+        let list = widgets::list(&mut c, t, f, y, &rows);
+        y = list.bottom;
+        let note = l.pick([
+            "同一网络里的设备都能打开这一页，也能上传和下载。关掉开关或离开恢复模式，它就消失。",
+            "同一網路裡的裝置都能開啟這一頁，也能上傳和下載。關掉開關或離開復原模式，它就消失。",
+            "Any device on the network can open it, and put files there too. It goes when the switch is turned off.",
+        ]);
+        y = widgets::footnote(&mut c, t, f, y, note);
+    } else {
+        let note = l.pick([
+            "手机还没有网络地址：请先在「设置」里连接 WLAN，地址会出现在这里。",
+            "手機還沒有網路位址：請先在「設定」裡連線 Wi-Fi，位址會出現在這裡。",
+            "The phone has no address yet: join a network in Settings, and the address shows here.",
+        ]);
+        y = widgets::footnote(&mut c, t, f, y, note);
+    }
+    Frame::new(t, fit(c, t, y), out, l.pick(WIRELESS), top)
+}
+
+const WIRELESS: Text = ["无线传输", "無線傳輸", "Wireless transfer"];
+
+/// A file taken from an address typed on the screen's keyboard, into the
+/// downloads folder: the address, how far it has come, and how it ended.
+pub fn fetch(cx: &Ctx) -> Frame {
+    let (t, f, s, l) = (cx.t, cx.f, cx.state, cx.state.lang);
+    let mut c = page(cx);
+    let mut out = Vec::new();
+    let top = t.m.content_top;
+    let (mut y, caret) = widgets::text_field(&mut c, t, f, top, &s.fetch_url);
+    let note = l.pick([
+        "以 http:// 或 https:// 开头，文件保存到内部存储的 Download 文件夹。",
+        "以 http:// 或 https:// 開頭，檔案儲存到內部儲存空間的 Download 資料夾。",
+        "It starts with http:// or https://, and is saved in Download in internal storage.",
+    ]);
+    y = widgets::footnote(&mut c, t, f, y, note);
+    match &s.fetch {
+        Fetch::Idle => {}
+        Fetch::Running { name, done, total, rate } => {
+            y = widgets::section(&mut c, t, f, y + t.m.dp(10.0), l.pick(["正在下载", "正在下載", "Downloading"]));
+            widgets::progress_bar(&mut c, t, t.m.margin, y + t.m.dp(2.0), t.m.w as f32 - t.m.margin * 2.0, share(*done, *total));
+            let (came, all, pace) = (fmt::file_size(*done), fmt::file_size(*total), fmt::file_size(*rate));
+            let how = tr!(l, "已下载 {came}，共 {all}", "已下載 {came}，共 {all}", "{came} of {all}");
+            let speed = tr!(l, "速度 {pace}/s", "速度 {pace}/s", "{pace}/s");
+            let rows = [
+                Row::new(name.as_str()).icon(BLUE, Icon::Folder).subtitle(&how).trail(Trail::Value(speed.as_str())),
+                Row::new(l.pick(["停止下载", "停止下載", "Stop downloading"])).tint(t.pal.danger).trail(Trail::None),
+            ];
+            let list = widgets::list(&mut c, t, f, y + t.m.dp(18.0), &rows);
+            out.extend(hits(&list.rows[1..], &[Action::StopFetch]));
+        }
+        Fetch::Done { name } => {
+            let saved = l.pick([
+                "已保存到内部存储的 Download 文件夹",
+                "已儲存到內部儲存空間的 Download 資料夾",
+                "Saved in Download in internal storage",
+            ]);
+            widgets::list(&mut c, t, f, y + t.m.dp(10.0), &[Row::new(name.as_str()).icon(GREEN, Icon::Folder).subtitle(saved).trail(Trail::None)]);
+        }
+        Fetch::Stopped { name } => {
+            let kept = l.pick([
+                "已停止，已下载的部分会保留，再下载同一地址时接着下",
+                "已停止，已下載的部分會保留，再下載同一網址時接著下",
+                "Stopped: what came is kept, and the same address goes on from there.",
+            ]);
+            widgets::list(&mut c, t, f, y + t.m.dp(10.0), &[Row::new(name.as_str()).icon(SLATE, Icon::Folder).subtitle(kept).trail(Trail::None)]);
+        }
+        Fetch::Failed(why) => {
+            widgets::footnote(&mut c, t, f, y + t.m.dp(10.0), why);
+        }
+    }
+    keyboard_hits(&mut c, t, f, s, l.pick(START_FETCH), &mut out);
+    Frame { caret: Some(caret), ..Frame::new(t, c, out, l.pick(FETCH), top) }
+}
+
+const FETCH: Text = ["网络下载", "網路下載", "Download"];
+const START_FETCH: Text = ["下载", "下載", "Download"];
+
+/// The order the file manager lists entries in: what they are put in order
+/// by, which way, and whether folders stand before files.
+pub fn sort(cx: &Ctx) -> Frame {
+    let (t, f, s, l) = (cx.t, cx.f, cx.state, cx.state.lang);
+    let mut c = long_page(cx);
+    let mut out = Vec::new();
+    let top = t.m.content_top;
+    let y = widgets::section_first(&mut c, t, f, top, l.pick(["排序方式", "排序方式", "Sort by"]));
+    let keys = widgets::list(&mut c, t, f, y, &[
+        Row::new(l.pick(SORT_NAME)).trail(Trail::Check(s.sort == SortKey::Name)),
+        Row::new(l.pick(SORT_SIZE)).trail(Trail::Check(s.sort == SortKey::Size)),
+        Row::new(l.pick(SORT_TIME)).trail(Trail::Check(s.sort == SortKey::Modified)),
+    ]);
+    out.extend(hits(&keys.rows, &[Action::SortBy(SortKey::Name), Action::SortBy(SortKey::Size), Action::SortBy(SortKey::Modified)]));
+    let y = widgets::section(&mut c, t, f, keys.bottom, l.pick(["顺序", "順序", "Order"]));
+    let order = widgets::list(&mut c, t, f, y, &[
+        Row::new(l.pick(SORT_ASC)).trail(Trail::Check(!s.sort_desc)),
+        Row::new(l.pick(SORT_DESC)).trail(Trail::Check(s.sort_desc)),
+    ]);
+    out.extend(hits(&order.rows, &[Action::SortDesc(false), Action::SortDesc(true)]));
+    let y = widgets::section(&mut c, t, f, order.bottom, l.pick(["文件夹", "資料夾", "Folders"]));
+    let folders = widgets::list(&mut c, t, f, y, &[Row::new(l.pick(SORT_FOLDERS)).trail(Trail::Switch(s.folders_first))]);
+    out.extend(hits(&folders.rows, &[Action::Toggle(Switch::FoldersFirst)]));
+    let note = l.pick([
+        "文件管理器和「选择文件」的页面都按这个顺序排列，选择会被记住。",
+        "檔案管理員和「選擇檔案」的頁面都按這個順序排列，選擇會被記住。",
+        "The file manager and the pages that choose a file list entries in this order, and it is kept.",
+    ]);
+    let y = widgets::footnote(&mut c, t, f, folders.bottom, note);
+    Frame::new(t, fit(c, t, y), out, l.pick(SORT), top)
+}
+
+const SORT: Text = ["文件排序", "檔案排序", "File order"];
+const SORT_NAME: Text = ["名称", "名稱", "Name"];
+const SORT_SIZE: Text = ["大小", "大小", "Size"];
+const SORT_TIME: Text = ["修改时间", "修改時間", "Date modified"];
+const SORT_ASC: Text = ["升序", "升序", "Ascending"];
+const SORT_DESC: Text = ["降序", "降序", "Descending"];
+const SORT_FOLDERS: Text = ["文件夹置顶", "資料夾置頂", "Folders first"];
 
 /// The file manager, every entry of the folder shown, folders first.
 pub fn files(cx: &Ctx) -> Frame {

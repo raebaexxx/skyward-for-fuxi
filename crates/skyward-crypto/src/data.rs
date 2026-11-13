@@ -10,13 +10,14 @@ use crate::keystore::{StoredKey, Unwrap};
 use crate::token::Token;
 use crate::user::Bound;
 use crate::weaver::Weaver;
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use skyward_binder::driver::Binder;
 use skyward_block::dm::Target;
 use skyward_block::fsck::Checked;
 use skyward_block::fstab::Entry;
 use skyward_block::{dm, mount};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 /// Where the data partition is mounted, and the name its decrypted form is
 /// given among the device-mapper's devices.
@@ -31,6 +32,34 @@ pub const SDCARD: &str = "/sdcard";
 
 /// The phone's owner, the first of its users.
 const OWNER: u32 = 0;
+
+/// The second space HyperOS keeps: a user of its own, whose files are kept
+/// behind the owner's credential. Opening them is a second unlock, behind the
+/// one the page asked for, and one that can leave the page waiting; the
+/// recovery leaves them closed.
+const SECOND_SPACE: u32 = 999;
+
+/// How far an opening has come, for the page that waits on it: the number of
+/// the steps below it has taken, the last of which is set as it returns.
+static STEP: AtomicU8 = AtomicU8::new(0);
+
+/// The steps an opening goes through: the partition, the files that are no
+/// one user's, then each user's own.
+const STEPS: u8 = 5;
+
+/// Zero the steps for a job about to start.
+pub fn restart() {
+    STEP.store(0, Ordering::Relaxed);
+}
+
+/// How far the opening has come, from 0 to 1, 1 being its end.
+pub fn progress() -> f32 {
+    f32::from(STEP.load(Ordering::Relaxed)) / f32::from(STEPS)
+}
+
+fn at(step: u8) {
+    STEP.store(step, Ordering::Relaxed);
+}
 
 /// The key is in a directory of this name under the one the phone names.
 const KEY_DIR: &str = "key";
@@ -120,7 +149,7 @@ pub struct Opened {
 /// leaves no device behind.
 fn open(service: &KeyMint) -> Result<Opened> {
     let entries = skyward_block::fstab::read(MOUNT)?;
-    let Some(keyed) = encryption_entry(&entries)? else { return open_as_it_lies(&entries) };
+    let keyed = keyed_entry(&entries)?;
     let mapped = map(service, keyed)?;
     match mount_data(&entries, keyed, &mapped) {
         Ok((checked, filesystem)) => Ok(Opened { mapped, filesystem, checked }),
@@ -131,15 +160,33 @@ fn open(service: &KeyMint) -> Result<Opened> {
     }
 }
 
+/// The filesystems the probe can name: blkid's, and erofs, which the
+/// ramdisk reads with dump.erofs. A partition holding another is mounted as
+/// the phone's table says, without the probe to tell whether the key was the
+/// right one.
+const PROBED: [&str; 5] = ["f2fs", "ext4", "ext3", "ext2", "erofs"];
+
 /// Mount the partition at /data as the entry of the filesystem it holds
 /// says, after the check that entry asks for, and give how the check ended
 /// and the filesystem. `keyed` is the entry the key was found by, which is
 /// what a probe that names no filesystem falls back to.
 fn mount_data(entries: &[Entry], keyed: &Entry, device: &Path) -> Result<(Option<Checked>, String)> {
+    let holds = skyward_block::probe::filesystem(device)?;
+    // A mapping through which no filesystem reads was opened under another
+    // key than the one the partition was closed with. A filesystem the probe
+    // cannot name is mounted as the table says, and what mount answers is the
+    // answer.
+    ensure!(
+        holds.is_some() || !PROBED.contains(&keyed.filesystem.as_str()),
+        "no filesystem can be read through {}: the key it was opened with is not the one it was closed with",
+        device.display()
+    );
     // A phone that names the partition once per filesystem it might hold
     // mounts it with the entry of the one it holds.
-    let holds = skyward_block::probe::filesystem(device)?;
-    let entry = entries.iter().find(|e| holds.as_ref() == Some(&e.filesystem)).unwrap_or(keyed);
+    let entry = match &holds {
+        Some(held) => entries.iter().find(|e| &e.filesystem == held).unwrap_or(keyed),
+        None => keyed,
+    };
     let checked = match entry.extras.iter().any(|e| e == "check") {
         true => Some(skyward_block::fsck::check(device, &entry.filesystem)?),
         false => None,
@@ -149,20 +196,19 @@ fn mount_data(entries: &[Entry], keyed: &Entry, device: &Path) -> Result<(Option
     Ok((checked, entry.filesystem.clone()))
 }
 
-/// Mount a data partition the phone does not encrypt whole as it lies, the
-/// way its table mounts it, and give it as opened.
-fn open_as_it_lies(entries: &[Entry]) -> Result<Opened> {
-    let Some(first) = entries.first() else { bail!("the phone's own table says nothing about {MOUNT}") };
-    let mapped = PathBuf::from(skyward_block::fstab::device(first)?);
-    let (checked, filesystem) = mount_data(entries, first, &mapped)?;
-    Ok(Opened { mapped, filesystem, checked })
-}
-
 /// Map the data partition decrypted, under the key the phone keeps for it,
-/// and give the device the filesystem is read and written through.
+/// and give the device the filesystem is read and written through. A
+/// filesystem that reads off the partition as it lies says the partition is
+/// in the clear, whatever the table says of encrypting it: a table may keep
+/// the words after the system made the partition afresh without them.
 fn map(service: &KeyMint, entry: &Entry) -> Result<PathBuf> {
-    let encryption = Encryption::of(entry)?;
     let device = skyward_block::fstab::device(entry)?;
+    let path = PathBuf::from(&device);
+    let encrypts = entry.extra("metadata_encryption").is_some();
+    if !encrypts || skyward_block::probe::filesystem(&path)?.is_some() {
+        return Ok(path);
+    }
+    let encryption = Encryption::of(entry)?;
     let key = storage_key(service, entry, &encryption)?;
     let sectors = skyward_block::size_bytes(&device)? / 512;
     dm::create(MAPPED, &[target(&device, sectors, &key, &encryption)], false)
@@ -171,13 +217,14 @@ fn map(service: &KeyMint, entry: &Entry) -> Result<PathBuf> {
 /// The entry the key for the partition is found by: the one that says how
 /// the partition is encrypted whole. A phone may name the partition once per
 /// filesystem it might hold, and only the one it holds says so; the others
-/// are there for the filesystem that is not. None where no entry says it:
-/// the phone encrypts no part of the partition whole.
-fn encryption_entry(entries: &[Entry]) -> Result<Option<&Entry>> {
-    if entries.is_empty() {
-        bail!("the phone's own table says nothing about {MOUNT}");
+/// are there for the filesystem that is not. The first is given where no
+/// entry says it: the partition may be in the clear, which [`map`] tells by
+/// itself.
+fn keyed_entry(entries: &[Entry]) -> Result<&Entry> {
+    match skyward_block::fstab::encrypted(entries) {
+        Some(entry) => Ok(entry),
+        None => entries.first().with_context(|| format!("the phone's own table says nothing about {MOUNT}")),
     }
-    Ok(skyward_block::fstab::encrypted(entries))
 }
 
 /// Map the data partition decrypted without mounting it, for its
@@ -185,15 +232,9 @@ fn encryption_entry(entries: &[Entry]) -> Result<Option<&Entry>> {
 /// [`unmap`] takes it away again. The partition is to be closed. A
 /// partition the phone does not encrypt whole is given as it lies.
 pub fn map_unmounted(service: &KeyMint) -> Result<PathBuf> {
-    anyhow::ensure!(dm::status(MAPPED)?.is_none(), "the data partition is open");
+    ensure!(dm::status(MAPPED)?.is_none(), "the data partition is open");
     let entries = skyward_block::fstab::read(MOUNT)?;
-    match encryption_entry(&entries)? {
-        Some(entry) => map(service, entry),
-        None => match entries.first() {
-            Some(entry) => Ok(PathBuf::from(skyward_block::fstab::device(entry)?)),
-            None => bail!("the phone's own table says nothing about {MOUNT}"),
-        },
-    }
+    map(service, keyed_entry(&entries)?)
 }
 
 /// Take away the mapping [`map_unmounted`] made, where it made one.
@@ -254,14 +295,22 @@ pub struct Opening {
 /// sign in, and open the own files of every user who set no screen lock
 /// and, behind the owner's, of those whose credential the phone made up.
 pub fn open_without_credential(service: &KeyMint) -> Result<Opening> {
+    at(1);
     let mounted = match mount::is_mount_point(Path::new(MOUNT))? {
         true => None,
         false => Some(open(service)?),
     };
+    at(2);
     open_shared(service)?;
+    at(3);
     let mut closed = Vec::new();
     let mut owner = Note::default();
     for user in open_users(service)? {
+        // The second space's own files are kept behind the owner's credential,
+        // so opening them is a second unlock the page is not waiting on.
+        if user == SECOND_SPACE {
+            continue;
+        }
         let protector = protector(user)?;
         match protector.lock {
             None => {
@@ -273,19 +322,26 @@ pub fn open_without_credential(service: &KeyMint) -> Result<Opening> {
             Some(lock) => closed.push(Closed { user, lock: lock.kind, made_up: made_up(user, &protector.id), why: None }),
         }
     }
-    Ok(Opening { mounted, closed: open_made_up(service, closed, &owner) })
+    at(4);
+    let closed = open_made_up(service, closed, &owner);
+    at(5);
+    Ok(Opening { mounted, closed })
 }
 
 /// Open the own files of `user` with what they typed at their screen lock
 /// and, where `user` is the owner, of each of `closed` whose credential
 /// the phone made up behind theirs; give those still closed.
 pub fn unlock(service: &KeyMint, closed: &[Closed], user: u32, credential: &[u8]) -> Result<Vec<Closed>> {
+    at(1);
     let note = open_user_files(service, user, Some(credential), None)?;
+    at(3);
     let rest = closed.iter().filter(|c| c.user != user).cloned().collect();
-    Ok(match user == OWNER {
+    let left = match user == OWNER {
         true => open_made_up(service, rest, &note),
         false => rest,
-    })
+    };
+    at(5);
+    Ok(left)
 }
 
 /// Open the own files of each of `closed` whose credential the phone made
@@ -432,6 +488,28 @@ fn protector(user: u32) -> Result<crate::user::Protector> {
             ),
         },
     };
+    let first = protector_at(&dir, &id)?;
+    // A phone whose weaver a recovery cannot reach keeps a second blob for the
+    // same user, bound to the bytes beside it, which the credential service
+    // alone opens: that one is taken instead, as the configuration says.
+    if matches!(first.bound, Bound::Weaver(_)) && !weaver_first() {
+        let other = ids.iter().find(|other| {
+            other.as_str() != id.as_str()
+                && dir.join(format!("{other}.secdis")).is_file()
+                && dir.join(format!("{other}.pwd")).is_file()
+        });
+        if let Some(other) = other {
+            let alt = protector_at(&dir, other.as_str())?;
+            if matches!(alt.bound, Bound::Secdiscardable(_)) {
+                return Ok(alt);
+            }
+        }
+    }
+    Ok(first)
+}
+
+/// What the blob `id` in `dir` keeps a user's secret behind, read as it lies.
+fn protector_at(dir: &Path, id: &str) -> Result<crate::user::Protector> {
     // A user who has set a screen lock has what the phone recorded about
     // it beside the blob; a user who has set none has nothing there.
     let recorded = dir.join(format!("{id}.pwd"));
@@ -453,9 +531,24 @@ fn protector(user: u32) -> Result<crate::user::Protector> {
     Ok(crate::user::Protector {
         blob: std::fs::read(dir.join(format!("{id}.spblob"))).with_context(|| format!("read the blob in {}", dir.display()))?,
         bound,
-        id,
+        id: id.to_string(),
         lock,
     })
+}
+
+/// Whether the weaver's own slots are used for a phone whose blobs are bound
+/// to it: said once by the program that read the configuration, before the
+/// data partition is opened.
+static WEAVER_FIRST: AtomicBool = AtomicBool::new(true);
+
+/// Says whether the weaver's own slots are used, as the phone's configuration
+/// asks. Left unsaid, they are.
+pub fn use_weaver_first(yes: bool) {
+    WEAVER_FIRST.store(yes, Ordering::Relaxed);
+}
+
+fn weaver_first() -> bool {
+    WEAVER_FIRST.load(Ordering::Relaxed)
 }
 
 /// Which of the secure world's slots a user's enrolments sit in. What the
@@ -687,14 +780,14 @@ mod tests {
         other.filesystem = "mifs".into();
         let encrypted = entry("latemount,metadata_encryption=adiantum,keydirectory=/metadata/vold/metadata_encryption");
         let both = [other, encrypted.clone()];
-        assert_eq!(encryption_entry(&both).unwrap(), Some(&encrypted), "the one that says it, not the first");
-        assert!(encryption_entry(&[]).is_err(), "a table with no entry for the partition at all");
+        assert_eq!(keyed_entry(&both).unwrap(), &encrypted, "the one that says it, not the first");
+        assert!(keyed_entry(&[]).is_err(), "a table with no entry for the partition at all");
     }
 
     #[test]
-    fn a_table_that_says_nothing_of_encryption_names_no_entry_to_find_a_key_by() {
+    fn a_table_that_says_nothing_of_encryption_names_the_first_entry() {
         let none = [entry("latemount,quota")];
-        assert_eq!(encryption_entry(&none).unwrap(), None, "the partition is mounted as it lies");
+        assert_eq!(keyed_entry(&none).unwrap(), &none[0], "the partition may be in the clear, which the map tells");
         let error = Encryption::of(&none[0]).unwrap_err();
         assert!(format!("{error:#}").contains("not encrypted whole"), "{error:#}");
     }

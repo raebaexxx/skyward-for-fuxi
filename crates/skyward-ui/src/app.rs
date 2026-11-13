@@ -28,6 +28,7 @@ use skyward_net::supplicant::Security;
 use skyward_net::wlan::{Joined, Network, Power, Stage as Joining, Traffic, Wlan};
 use skyward_systems::{Overview, Who};
 use skyward_vab::{BootSlots, Hold, Slot, SnapshotState, Standing};
+use std::cmp::Ordering;
 
 /// The pages of the recovery.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,6 +136,15 @@ pub enum Screen {
     /// A network added by hand: its name, how it is protected and its
     /// password, typed on the screen's keyboard.
     WlanAdd,
+    /// The files in internal storage offered to the network the phone is
+    /// on, and the address a browser reaches them by.
+    Wireless,
+    /// A file taken from an address typed on the screen's keyboard, into
+    /// the downloads folder, and how that goes.
+    Fetch,
+    /// The order the file manager lists entries in: by what, which way,
+    /// and whether folders stand first.
+    Sort,
 }
 
 /// How far asking the update server for the newest system has come.
@@ -563,6 +573,10 @@ pub enum Switch {
     Wlan,
     /// Show the password typed rather than a dot for each character.
     ShowPassword,
+    /// Offer internal storage to the network the phone is on.
+    Wireless,
+    /// Folders stand before files in the file manager's list.
+    FoldersFirst,
 }
 
 /// What a backup can take, in the order the backup page lists it.
@@ -689,6 +703,68 @@ pub enum FileKind {
     Link { target: String, folder: bool },
     /// A device, socket or pipe.
     Special,
+}
+
+/// What the file manager puts a folder's entries in order by.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SortKey {
+    /// A to Z, whatever case.
+    #[default]
+    Name,
+    /// The smallest first.
+    Size,
+    /// The oldest first.
+    Modified,
+}
+
+impl SortKey {
+    /// The key as the settings file names it.
+    pub fn tag(self) -> &'static str {
+        match self {
+            SortKey::Name => "name",
+            SortKey::Size => "size",
+            SortKey::Modified => "modified",
+        }
+    }
+
+    /// The key `tag` names, where it names one.
+    pub fn of(tag: &str) -> Option<SortKey> {
+        match tag {
+            "name" => Some(SortKey::Name),
+            "size" => Some(SortKey::Size),
+            "modified" => Some(SortKey::Modified),
+            _ => None,
+        }
+    }
+}
+
+/// Whether `row` is a folder, or a link that leads to one: the entries
+/// that stand before the rest when folders do.
+fn is_folder(row: &FileRow) -> bool {
+    matches!(row.kind, FileKind::Folder { .. } | FileKind::Link { folder: true, .. })
+}
+
+/// The order `a` and `b` stand in: by `key`, turned round where `desc`,
+/// with folders first where `folders`, and by name where the key does not
+/// tell them apart.
+fn ordered(a: &FileRow, b: &FileRow, key: SortKey, desc: bool, folders: bool) -> Ordering {
+    if folders {
+        match (is_folder(a), is_folder(b)) {
+            (true, false) => return Ordering::Less,
+            (false, true) => return Ordering::Greater,
+            _ => {}
+        }
+    }
+    let by_name = || a.name.to_lowercase().cmp(&b.name.to_lowercase());
+    let told = match key {
+        SortKey::Name => by_name(),
+        SortKey::Size => a.size.cmp(&b.size),
+        SortKey::Modified => a.modified.cmp(&b.modified),
+    };
+    match desc {
+        true => told.reverse().then_with(by_name),
+        false => told.then_with(by_name),
+    }
 }
 
 /// A folder as a list of its entries shows it: where it is, what is in it
@@ -844,6 +920,31 @@ impl Data {
             _ => false,
         }
     }
+}
+
+/// A file being taken from an address typed on the download page, and how
+/// that went.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Fetch {
+    /// Nothing asked for yet.
+    #[default]
+    Idle,
+    /// Coming down: how much of it, and how fast, in bytes a second.
+    Running { name: String, done: u64, total: u64, rate: u64 },
+    /// Saved to the downloads folder.
+    Done { name: String },
+    /// Stopped as asked, with what came kept to go on from.
+    Stopped { name: String },
+    /// It could not be taken whole: why.
+    Failed(String),
+}
+
+/// How taking a file from an address ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FetchEnd {
+    Done,
+    Stopped,
+    Failed(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1173,6 +1274,12 @@ pub enum Action {
     Skip,
     /// Try opening the data partition again, after it did not open.
     OpenData,
+    /// Stop taking the file the download page is taking.
+    StopFetch,
+    /// Put the file manager's entries in order by this.
+    SortBy(SortKey),
+    /// Turn that order round, or back.
+    SortDesc(bool),
     Back,
     Theme { dark: bool },
     Toggle(Switch),
@@ -1598,6 +1705,24 @@ pub struct State {
     pub vibration: f32,
     /// A computer connected over USB is offered internal storage.
     pub file_transfer: bool,
+    /// A browser elsewhere on the network is offered the files in internal
+    /// storage.
+    pub wireless: bool,
+    /// The address that browser reaches them by; none while the phone has
+    /// no address of its own.
+    pub wireless_url: Option<String>,
+    /// How many requests the server has answered.
+    pub wireless_served: u64,
+    /// The address the download page has typed, and the file coming from
+    /// it.
+    pub fetch_url: String,
+    pub fetch: Fetch,
+    /// The order the file manager lists a folder's entries in: what they
+    /// are put in order by, whether the order is turned round, and whether
+    /// folders stand before files.
+    pub sort: SortKey,
+    pub sort_desc: bool,
+    pub folders_first: bool,
     pub reboot: usize,
     /// What the wipe page has chosen, by place in [`WIPES`].
     pub wipe: [bool; WIPES.len()],
@@ -1674,6 +1799,9 @@ pub struct State {
     /// Where the data partition stands, and what is typed at the screen
     /// lock its users' own files wait on.
     pub data: Data,
+    /// How far opening the data partition has come, from 0 to 1, while it
+    /// opens.
+    pub opening: f32,
     pub code: String,
     /// What is typed in the search field.
     pub search: String,
@@ -1769,6 +1897,18 @@ impl Default for State {
             vibrate: true,
             vibration: SLIDER_START,
             file_transfer: true,
+            // Offered to the network when it is asked for, and not before:
+            // the files are the phone's own.
+            wireless: false,
+            wireless_url: None,
+            wireless_served: 0,
+            fetch_url: String::new(),
+            fetch: Fetch::Idle,
+            // The stock file manager's own order to start with: folders
+            // first, then by name.
+            sort: SortKey::Name,
+            sort_desc: false,
+            folders_first: true,
             reboot: 0,
             wipe: [false; WIPES.len()],
             cache_partition: false,
@@ -1802,6 +1942,7 @@ impl Default for State {
             systems_work: None,
             system_notice: None,
             data: Data::Closed,
+            opening: 0.0,
             code: String::new(),
             search: String::new(),
             layer: Layer::Letters,
@@ -1968,6 +2109,13 @@ pub enum Effect {
     Screenshot { storage: bool },
     /// Offer internal storage to a computer over USB, or stop.
     FileTransfer(bool),
+    /// Offer the files in internal storage to the network the phone is on,
+    /// or stop.
+    Wireless(bool),
+    /// Take the file `url` offers into the downloads folder under `name`.
+    StartFetch { url: String, name: String },
+    /// Stop taking it.
+    StopFetch,
     /// Start receiving a package over USB.
     Sideload,
     /// Start installing the file at this path from the top of a place,
@@ -3283,6 +3431,18 @@ impl App {
     /// The data partition is open: every user's own files with it, or
     /// those of `waiting`, the user and the control their screen lock is
     /// answered with, still closed.
+    /// How far opening the data partition has come, from 0 to 1, while the
+    /// decrypt page waits on it.
+    pub fn data_progress(&mut self, progress: f32) {
+        if !matches!(self.state.data, Data::Opening) || (progress - self.state.opening).abs() < 0.01 {
+            return;
+        }
+        self.state.opening = progress;
+        if matches!(self.screen(), Screen::Decrypt) {
+            self.refresh();
+        }
+    }
+
     pub fn data_waiting(&mut self, waiting: Option<(u32, Keys)>) {
         self.state.data = match waiting {
             Some((user, keys)) => Data::Locked { user, keys, checking: false },
@@ -3546,6 +3706,7 @@ impl App {
     pub fn asked_opening(&mut self) {
         self.state.install = Install::Opening;
         self.state.data = Data::Opening;
+        self.state.opening = 0.0;
         self.refresh();
     }
 
@@ -4060,7 +4221,31 @@ impl App {
     /// `folder` becomes the one the list on page `screen` shows. A folder
     /// gone back up to shows where it was left, as the stock file manager
     /// does; any other starts from its top.
-    fn show_folder(&mut self, screen: Screen, folder: String, files: Result<Vec<FileRow>, String>, listed: i64) {
+    /// The order the file manager lists entries in, and the pages that
+    /// choose a file: by `key`, turned round where `desc`, with folders
+    /// first where `folders`. The folders shown are put in it at once.
+    pub fn set_sort(&mut self, key: SortKey, desc: bool, folders: bool) {
+        self.state.sort = key;
+        self.state.sort_desc = desc;
+        self.state.folders_first = folders;
+        for screen in [Screen::Files, Screen::Choose(Place::Storage), Screen::Choose(Place::UsbDrive)] {
+            if let Ok(entries) = &mut self.state.folder_mut(screen).entries {
+                entries.sort_by(|a, b| ordered(a, b, key, desc, folders));
+            }
+        }
+        self.refresh();
+    }
+
+    /// Put `entries` in the order the file manager is set to show them in.
+    fn arrange(&self, entries: &mut [FileRow]) {
+        let (key, desc, folders) = (self.state.sort, self.state.sort_desc, self.state.folders_first);
+        entries.sort_by(|a, b| ordered(a, b, key, desc, folders));
+    }
+
+    fn show_folder(&mut self, screen: Screen, folder: String, mut files: Result<Vec<FileRow>, String>, listed: i64) {
+        if let Ok(entries) = &mut files {
+            self.arrange(entries);
+        }
         let left = &self.state.folder(screen).path;
         if folder != *left && self.screen() == screen {
             // Climbing out of a folder, the keys come back to it; any other
@@ -4719,6 +4904,80 @@ impl App {
         self.say(why, now);
     }
 
+    /// The files in internal storage are served, at `url` where the phone
+    /// has an address to reach them by.
+    pub fn wireless_started(&mut self, url: Option<String>) {
+        self.state.wireless = true;
+        self.state.wireless_url = url;
+        self.state.wireless_served = 0;
+        self.refresh();
+    }
+
+    /// The files are no longer served.
+    pub fn wireless_stopped(&mut self) {
+        self.state.wireless = false;
+        self.state.wireless_url = None;
+        self.state.wireless_served = 0;
+        self.refresh();
+    }
+
+    /// The address the phone has now, as the server is reached by it; none
+    /// while it has none.
+    pub fn wireless_at(&mut self, url: Option<String>) {
+        if self.state.wireless_url != url {
+            self.state.wireless_url = url;
+            self.refresh();
+        }
+    }
+
+    /// How many requests the server has answered.
+    pub fn wireless_served(&mut self, served: u64) {
+        if self.state.wireless_served != served {
+            self.state.wireless_served = served;
+            self.refresh();
+        }
+    }
+
+    /// The files could not be served, as the system says why.
+    pub fn wireless_failed(&mut self, why: &str, now: u64) {
+        self.state.wireless = false;
+        self.state.wireless_url = None;
+        self.refresh();
+        self.say(why, now);
+    }
+
+    /// The file from the address is coming down, under the name it goes by.
+    pub fn fetch_started(&mut self, name: &str) {
+        self.state.fetch = Fetch::Running { name: name.to_string(), done: 0, total: 0, rate: 0 };
+        self.refresh();
+    }
+
+    /// How far the download has come, and how fast, in bytes a second.
+    pub fn fetch_progress(&mut self, done: u64, total: u64, rate: u64) {
+        if let Fetch::Running { name, .. } = &self.state.fetch {
+            let name = name.clone();
+            self.state.fetch = Fetch::Running { name, done, total, rate };
+            self.refresh();
+        }
+    }
+
+    /// The download ended, as `end` says: the name it went by is kept for
+    /// the page to say where the file is.
+    pub fn fetch_ended(&mut self, end: FetchEnd) {
+        let name = match &self.state.fetch {
+            Fetch::Running { name, .. } => name.clone(),
+            _ => String::new(),
+        };
+        self.state.fetch = match end {
+            FetchEnd::Done if name.is_empty() => Fetch::Idle,
+            FetchEnd::Done => Fetch::Done { name },
+            FetchEnd::Stopped if name.is_empty() => Fetch::Idle,
+            FetchEnd::Stopped => Fetch::Stopped { name },
+            FetchEnd::Failed(why) => Fetch::Failed(why),
+        };
+        self.refresh();
+    }
+
     fn say(&mut self, text: &str, now: u64) {
         self.toast = Some((text.to_string(), now + TOAST_MS));
         self.dirty = true;
@@ -5096,6 +5355,10 @@ impl App {
                 }
             }
             Screen::Decrypt if matches!(self.state.data, Data::Closed | Data::Failed(_)) => self.open_data(),
+            // The files are what the page is about: the partition they are
+            // in is opened as the page opens, so that turning the switch
+            // needs nothing else.
+            Screen::Wireless if matches!(self.state.data, Data::Closed | Data::Failed(_)) => self.open_data(),
             // As the stock updater does, the page asks the update server as
             // it opens, once a network is joined and nothing has been heard.
             Screen::Update => {
@@ -5127,6 +5390,7 @@ impl App {
     /// Open the data partition, the decrypt page saying so meanwhile.
     fn open_data(&mut self) -> Vec<Effect> {
         self.state.data = Data::Opening;
+        self.state.opening = 0.0;
         self.refresh();
         vec![Effect::OpenData]
     }
@@ -5150,6 +5414,7 @@ impl App {
                 return self.arrive_at(s);
             }
             Action::OpenData => return self.open_data(),
+            Action::StopFetch => return vec![Effect::StopFetch],
             Action::Skip => {
                 self.leave(true);
                 if self.stack.len() > 1 {
@@ -5176,6 +5441,14 @@ impl App {
                 self.refresh();
                 return vec![Effect::Wlan(on)];
             }
+            // Folders standing first is the order itself, so the folder
+            // shown is put in it again at once.
+            Action::Toggle(Switch::FoldersFirst) => {
+                let folders = !self.state.folders_first;
+                self.set_sort(self.state.sort, self.state.sort_desc, folders);
+            }
+            Action::SortBy(key) => self.set_sort(key, self.state.sort_desc, self.state.folders_first),
+            Action::SortDesc(desc) => self.set_sort(self.state.sort, desc, self.state.folders_first),
             Action::Toggle(switch) => {
                 let on = match switch {
                     Switch::Vibrate => &mut self.state.vibrate,
@@ -5185,13 +5458,18 @@ impl App {
                     Switch::Signature => &mut self.state.check_signature,
                     Switch::KeepRecovery => &mut self.state.keep_recovery,
                     Switch::ShowPassword => &mut self.state.show_password,
+                    Switch::Wireless => &mut self.state.wireless,
                     Switch::Wlan => unreachable!("the WLAN switch is turned above"),
+                    Switch::FoldersFirst => unreachable!("the folders-first switch puts the list in order above"),
                 };
                 *on = !*on;
                 let now_on = *on;
                 self.refresh();
                 if switch == Switch::FileTransfer {
                     return vec![Effect::FileTransfer(now_on)];
+                }
+                if switch == Switch::Wireless {
+                    return vec![Effect::Wireless(now_on)];
                 }
             }
             Action::MountToggle(i) => {
@@ -5700,6 +5978,7 @@ impl App {
             Screen::Search => &mut self.state.search,
             Screen::Decrypt => &mut self.state.code,
             Screen::Rename => &mut self.state.new_name,
+            Screen::Fetch => &mut self.state.fetch_url,
             Screen::WlanPassword => &mut self.state.password,
             Screen::WlanAdd => {
                 let a = self.state.adding.as_mut().expect("the page adds a network");
@@ -5907,6 +6186,27 @@ impl App {
                         _ if name == *current => return self.back(now),
                         _ if taken => self.say_taken(now),
                         _ => return vec![Effect::Rename { path: self.entry_path(), name }],
+                    }
+                }
+                // An address that is not one is turned down here, in the
+                // user's words; one that is starts the download, and the
+                // page follows it.
+                Screen::Fetch => {
+                    let url = self.state.fetch_url.trim().to_string();
+                    if url.is_empty() {
+                        self.say(l.pick(["请输入网址", "請輸入網址", "Enter an address"]), now);
+                    } else if !(url.starts_with("http://") || url.starts_with("https://")) {
+                        self.say(
+                            l.pick(["网址需以 http:// 或 https:// 开头", "網址需以 http:// 或 https:// 開頭", "An address starts with http:// or https://"]),
+                            now,
+                        );
+                    } else if matches!(self.state.fetch, Fetch::Running { .. }) {
+                        self.say(l.pick(["正在下载，请先停止", "正在下載，請先停止", "A download is under way. Stop it first."]), now);
+                    } else {
+                        let name = skyward_net::download::name_from(&url);
+                        self.state.fetch = Fetch::Running { name: name.clone(), done: 0, total: 0, rate: 0 };
+                        self.refresh();
+                        return vec![Effect::StartFetch { url, name }];
                     }
                 }
                 // A password the network's protection cannot take is turned
@@ -8123,6 +8423,82 @@ mod tests {
         assert!(!app.state.file_transfer, "the switch shows how it stands");
     }
 
+    #[test]
+    fn the_wireless_switch_has_the_runtime_serve_the_files() {
+        let (f, i) = (fonts(), info());
+        let mut app = App::new(Screen::Wireless, W, H, PPD);
+        assert!(!app.state.wireless, "the files are the phone's own, and not served until asked");
+        assert_eq!(tap_at(&mut app, &f, &i, Action::Toggle(Switch::Wireless), 1000), [Effect::Wireless(true)]);
+        assert!(app.state.wireless);
+        app.wireless_started(Some("http://192.168.1.5:8080/".into()));
+        assert_eq!(app.state.wireless_url.as_deref(), Some("http://192.168.1.5:8080/"));
+        app.wireless_served(3);
+        assert_eq!(app.state.wireless_served, 3, "the page says how many requests were answered");
+        app.wireless_stopped();
+        assert!(!app.state.wireless, "the switch shows how it stands");
+        assert_eq!(app.state.wireless_url, None, "and the address goes with it");
+    }
+
+    #[test]
+    fn a_download_says_where_it_stands() {
+        let mut app = App::new(Screen::Fetch, W, H, PPD);
+        assert_eq!(app.state.fetch, Fetch::Idle);
+        app.fetch_started("lineage.zip");
+        app.fetch_progress(5, 10, 1024);
+        assert_eq!(app.state.fetch, Fetch::Running { name: "lineage.zip".into(), done: 5, total: 10, rate: 1024 });
+        app.fetch_ended(FetchEnd::Done);
+        assert_eq!(app.state.fetch, Fetch::Done { name: "lineage.zip".into() }, "the page says what it is called");
+
+        app.fetch_started("a.zip");
+        app.fetch_progress(1, 4, 0);
+        app.fetch_ended(FetchEnd::Stopped);
+        assert_eq!(app.state.fetch, Fetch::Stopped { name: "a.zip".into() }, "what came is kept to go on from");
+
+        app.fetch_started("b.zip");
+        app.fetch_ended(FetchEnd::Failed("下载失败：the server answered 404".into()));
+        assert!(matches!(app.state.fetch, Fetch::Failed(_)));
+    }
+
+    #[test]
+    fn the_file_list_takes_the_order_the_pages_choose() {
+        let mut app = App::new(Screen::Files, W, H, PPD);
+        let mut big = entry("big.bin", FileKind::File);
+        (big.size, big.modified) = (9_000, 1_700_000_100);
+        let mut small = entry("small.bin", FileKind::File);
+        (small.size, small.modified) = (10, 1_700_000_300);
+        let mut old = entry("old.txt", FileKind::File);
+        old.modified = 1_700_000_000;
+        let mut new = entry("new.txt", FileKind::File);
+        new.modified = 1_800_000_000;
+        let folder = entry("DCIM", FileKind::Folder { items: Some(2) });
+        app.set_files("/sdcard".into(), Ok(vec![big, small, old, new, folder]), LISTED);
+        let names = |app: &App| -> Vec<String> {
+            app.state.files.entries.as_ref().unwrap().iter().map(|e| e.name.clone()).collect()
+        };
+        assert_eq!(names(&app), ["DCIM", "big.bin", "new.txt", "old.txt", "small.bin"], "folders first, then by name");
+        app.set_sort(SortKey::Size, false, true);
+        assert_eq!(names(&app), ["DCIM", "small.bin", "new.txt", "old.txt", "big.bin"], "the smallest first, by name where equal");
+        app.set_sort(SortKey::Size, true, false);
+        assert_eq!(names(&app), ["big.bin", "DCIM", "new.txt", "old.txt", "small.bin"], "the largest first, folders among them");
+        app.set_sort(SortKey::Modified, true, true);
+        assert_eq!(names(&app), ["DCIM", "new.txt", "small.bin", "big.bin", "old.txt"], "the newest first");
+        // An entry listed later comes in in the order already asked for.
+        app.set_files("/sdcard".into(), Ok(vec![entry("A.txt", FileKind::File)]), LISTED);
+        assert_eq!(names(&app), ["A.txt"]);
+    }
+
+    #[test]
+    fn the_advanced_page_opens_the_wireless_page() {
+        let (f, i) = (fonts(), info());
+        let mut app = App::new(Screen::Advanced, W, H, PPD);
+        let (_, y) = spot(&mut app, &f, &i, Action::Open(Screen::Wireless));
+        if y > H as f32 * 0.9 {
+            scroll_to(&mut app, &f, y - H as f32 * 0.8, 0);
+        }
+        tap_at(&mut app, &f, &i, Action::Open(Screen::Wireless), 1000);
+        assert_eq!(app.screen(), Screen::Wireless);
+    }
+
     /// Flick the page up from `start`: the finger travels `step` px every
     /// 8 ms five times and lifts 8 ms after its last move. Returns when it
     /// lifted.
@@ -10039,9 +10415,9 @@ mod tests {
         assert_eq!(app.key(Key::Back, 0), vec![Effect::ReadDir("/".into())], "back climbs a folder");
         assert_eq!(app.screen(), Screen::Files);
         app.set_files("/".into(), Ok(vec![entry("vmlinux", FileKind::File), entry("init.rc", FileKind::File)]), LISTED);
-        assert_eq!(tap(&mut app, &f, &i, Action::OpenEntry(1)), vec![Effect::OpenText("/init.rc".into())], "a text file opens to edit");
+        assert_eq!(tap(&mut app, &f, &i, Action::OpenEntry(0)), vec![Effect::OpenText("/init.rc".into())], "a text file opens to edit");
         assert_eq!(app.screen(), Screen::Files);
-        tap(&mut app, &f, &i, Action::OpenEntry(0));
+        tap(&mut app, &f, &i, Action::OpenEntry(1));
         assert_eq!(app.screen(), Screen::FileInfo);
         assert_eq!(app.state.file.as_ref().map(|e| e.name.as_str()), Some("vmlinux"));
         app.key(Key::Back, 0);
@@ -10072,7 +10448,7 @@ mod tests {
         ];
         app.set_place(Place::Storage, String::new(), Ok(listed), LISTED);
         let shown: Vec<&str> = app.state.storage.entries.as_ref().expect("listed").iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(shown, ["Download", "OTA.ZIP", "boot.img"], "folders and what can be installed, hidden ones left out");
+        assert_eq!(shown, ["Download", "boot.img", "OTA.ZIP"], "folders and what can be installed, hidden ones left out, by name whatever case");
         assert_eq!(tap(&mut app, &f, &i, Action::ChooseEntry(0)), vec![Effect::ReadPlace(Place::Storage, "Download".into())]);
         app.set_place(Place::Storage, "Download".into(), Ok(vec![entry("ota.zip", FileKind::File)]), LISTED);
         assert_eq!(tap(&mut app, &f, &i, Action::ChooseEntry(0)), vec![Effect::InstallFile(Place::Storage, "Download/ota.zip".into())]);
