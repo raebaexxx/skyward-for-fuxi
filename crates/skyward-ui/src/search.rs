@@ -98,6 +98,12 @@ pub const ENTRIES: &[Entry] = &[
     entry(SETTINGS, HOME, Screen::Settings, &["settings", "настройки"]),
     entry(["Dark mode", "Тёмная тема"], SETTINGS, Screen::Settings, &["dark", "theme", "тёмная тема", "темная тема"]),
     entry(
+        ["Remember the screen lock", "Запоминать пароль экрана"],
+        SETTINGS,
+        Screen::Settings,
+        &["remember", "password", "lock", "запоминать", "пароль", "блокировка"],
+    ),
+    entry(
         ["Screen brightness", "Яркость экрана"],
         SETTINGS,
         Screen::Settings,

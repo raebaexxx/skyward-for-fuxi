@@ -19,19 +19,27 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 
 ## Features
 
-- Decrypt the data partition with the screen lock
-- Install zips, system update packages and partition images, from internal storage, a USB drive or adb sideload
-- Online system updates
-- Backup and restore
-- Wipe data and factory reset
-- Mount partitions, repair and format filesystems
-- File manager and terminal, with the list ordered by name, size or date
-- Wireless transfer: internal storage in a browser on the network
-- Download a file from an address into internal storage
-- WLAN
-- MTP file transfer, adb and fastbootd
-- Reboot to system, recovery, fastboot, bootloader or EDL, and switch slots
-- Light and dark themes; English and Russian
+- **Opens the data partition.** Wrapped keys through the phone's key service,
+  file-based encryption, and the users' own files behind their screen lock.
+- **Installs** zips, full system update packages and partition images, from
+  internal storage, a USB drive or `adb sideload`.
+- **Backs up and restores** partitions and files, with a check of each backup.
+- **Wipes** data, and formats or repairs filesystems.
+- **Mounts** the slot's partitions, and switches slots.
+- **Files and a terminal**: a file manager, a shell, and the kernel log.
+- **Hands storage to a computer** over MTP, and speaks adb and fastbootd.
+- **WLAN**, joining the network kept at the next start by itself, for updates
+  straight from the network.
+- **A browser** (Advanced → Browser): type an address, read the page's words
+  and links, and follow them; scripts are not run and pictures are not shown.
+- **Wireless transfer**: a browser on the same network opens
+  `http://<phone>:8080/` to list, download and drop files onto the phone.
+- **Downloads from an address**: straight into `Download/`, resumed when
+  stopped; a code on the page (8081) takes an address typed on another phone,
+  and `link.txt` takes one a computer left.
+- **Two systems** on one phone, from the Dual boot page.
+- **Updates itself** from its own releases.
+- Light and dark themes; English and Russian.
 
 ## Supported device
 
@@ -56,10 +64,11 @@ WLAN, MTP, adb, installing a full system update package from internal storage
 and keeping Skyward after it, installing a GApps zip with its own script,
 wireless transfer to a browser, rebooting, and the About page.
 
-Still to be verified on the phone: backup and restore, wipe, the file manager
-and terminal, USB drives and `adb sideload`, the updater, dual boot, mounting,
-repairing or formatting partitions, uploading through wireless transfer,
-downloading by link, and the file order.
+Still to be verified on the phone: the browser, the code on the download page,
+the kept WLAN, backup and restore, wipe, the file manager and terminal, USB
+drives and `adb sideload`, the updater, dual boot, mounting, repairing or
+formatting partitions, uploading through wireless transfer, downloading by
+link, and the file order.
 
 ## Installing
 
@@ -85,8 +94,70 @@ Without a system in super, Skyward still starts, with its screen and keys, adb,
 `adb sideload` and fastbootd, enough to install one. Touch, WLAN and decryption
 run from the installed system and come back with it.
 
-adb in Skyward is a root shell that needs no authorization on the phone: anyone
-with the phone and a cable can reach its storage while it is in recovery.
+| Page | What it is for |
+| --- | --- |
+| Decrypt | What keeps the data partition closed, and the field for the password when a user's own files need one |
+| Home | The phone's state, and the way into everything else |
+| Files | The file manager, over internal storage, a USB drive and the slot's partitions |
+| Install | Packages and images: from a place, from a USB drive, or from `adb sideload` |
+| Backup | Partitions and files into a backup, and restoring one |
+| Mount | The slot's partitions, mounted, unmounted, formatted, repaired |
+| Wipe | Data, cache, and the phone's own logs |
+| Dual boot | A second system in the data partition, installed, switched to, removed |
+| Wireless | Internal storage handed to a browser on the same network: list, download, upload |
+| Download | An address taken into `Download/`, resumed when stopped; a code or `link.txt` brings one |
+| Browser | A page's words and links, read as markup; no scripts, no pictures |
+| Tools | A terminal, the kernel log, and the recovery's own log |
+| Settings | Theme, language, time zone, screen-off time, vibration, file transfer, the screen lock kept |
+| Reboot | System, recovery, fastboot, bootloader, EDL, and the slot to boot |
+| About | The version, the phone, and where the project comes from |
+
+## Decryption
+
+The data partition opens on demand: the file manager opens it when entered, and
+an update that needs `/data` opens it before reading it. Where no screen lock is
+set it opens by itself; where one is, the page asks for it. The metadata key is
+wrapped by the phone's hardware and needs nothing typed.
+
+A key is measured against the build it was made under, and a key made by a newer
+build than the one installed is refused until it is renewed — a renewal a key of
+a newer build never gets. Where the data was made by a newer system than the one
+now installed, the device configuration names that build with `build_release`
+and `build_patch`.
+
+The patch level is reported for the system's properties and the vendor's alike,
+because the vendor build is the one a key is measured against. Should the phone
+be reset from a newer system, those two lines have to name that system's build.
+The log then says which generation the key was made in, and whether the
+partition opened:
+
+```
+skyward: ro.vendor.build.security_patch speaks for the configuration's 2099-12-31, not the installed system's 2025-08-01
+skyward: the data partition is open: f2fs at /data
+skyward: the data partition stays closed: ... it was made by key format generation 4 ...
+```
+
+## When something goes wrong
+
+**The data partition stays closed.** Read the `generation N` in the log line
+above: the key was made by a build of that generation, and the recovery has to
+speak for it. That is what `build_release` and `build_patch` in the device
+configuration are for.
+
+**It asks for a password.** The users' own files are behind their screen lock;
+the password is the one the phone boots with. The partition itself opens
+without it.
+
+**Skyward is gone after a system update.** Turn on **Flash Skyward again** in
+Settings, or flash the image again; a stock OTA rewrites the recovery partition.
+
+**Nothing boots, but the phone is fine.** Hold power and volume up for recovery,
+or power and volume down for fastboot. With no system in super, Skyward still
+starts with its screen, keys, adb and fastbootd — enough to install one.
+
+**adb reaches the storage without authorization.** This is by design: adb in
+Skyward is a root shell that asks nothing. Anyone with the phone and a cable
+reaches its storage while it is in recovery.
 
 ## Building
 

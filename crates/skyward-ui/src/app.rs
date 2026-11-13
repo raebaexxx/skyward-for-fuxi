@@ -23,6 +23,7 @@ use skyward_info::DeviceInfo;
 use skyward_install::{Event, ImageKind, Outcome, Reflash, Refusal, Stage};
 use skyward_net::download::{Failure, Progress};
 use skyward_net::github::{Build, Newest};
+use skyward_net::html::{Block, Page};
 use skyward_net::release::{Release, Unanswered};
 use skyward_net::supplicant::Security;
 use skyward_net::wlan::{Joined, Network, Power, Stage as Joining, Traffic, Wlan};
@@ -145,6 +146,9 @@ pub enum Screen {
     /// The order the file manager lists entries in: by what, which way,
     /// and whether folders stand first.
     Sort,
+    /// The recovery's own browser: an address, and what the page at it says
+    /// in its markup, its links a finger can follow.
+    Browser,
 }
 
 /// How far asking the update server for the newest system has come.
@@ -571,12 +575,19 @@ pub enum Switch {
     /// over.
     KeepRecovery,
     Wlan,
+    /// Bring the WLAN up as the recovery starts.
+    WlanAuto,
+    /// Keep the password of the network joined last.
+    WlanKeep,
     /// Show the password typed rather than a dot for each character.
     ShowPassword,
     /// Offer internal storage to the network the phone is on.
     Wireless,
     /// Folders stand before files in the file manager's list.
     FoldersFirst,
+    /// Keep the screen lock, so that the next start opens the users' own
+    /// files without asking for it.
+    Remember,
 }
 
 /// What a backup can take, in the order the backup page lists it.
@@ -647,8 +658,9 @@ pub struct BackupAt {
 /// How backing up or restoring ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BackupEnd {
-    /// A backup made, in the folder of this name.
-    Saved(String),
+    /// A backup made, in the folder of this name, with how many files were
+    /// left out because the recovery may not read them.
+    Saved { name: String, skipped: u64 },
     /// A backup restored, but for what it held in the folders of users gone
     /// since, which only the system makes: where those were.
     Restored { unmade: Vec<String> },
@@ -936,6 +948,37 @@ pub enum Fetch {
     /// Stopped as asked, with what came kept to go on from.
     Stopped { name: String },
     /// It could not be taken whole: why.
+    Failed(String),
+}
+
+/// The recovery's own browser: the address it is at, the page it made of it,
+/// and the pages gone through to get here.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Browse {
+    /// What the address field holds, ready to be edited.
+    pub url: String,
+    /// The address the page shown came from.
+    pub at: String,
+    /// The page shown, where one has come.
+    pub page: Option<Page>,
+    pub status: BrowseStatus,
+    /// The addresses gone through before this one, the last last.
+    pub history: Vec<String>,
+    /// The address field is being typed in: the keys are up.
+    pub typing: bool,
+}
+
+/// How reading the page at an address stands.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum BrowseStatus {
+    /// Nothing asked for yet.
+    #[default]
+    Idle,
+    /// Asked for, and not come yet.
+    Loading,
+    /// Shown.
+    Shown,
+    /// It could not be read: why.
     Failed(String),
 }
 
@@ -1295,6 +1338,19 @@ pub enum Action {
     OpenData,
     /// Stop taking the file the download page is taking.
     StopFetch,
+    /// Take the address out of /sdcard/Download/link.txt, where a computer
+    /// put it, and fill the page's field with it.
+    FetchFromFile,
+    /// Read the address the browser's field holds.
+    BrowseGo,
+    /// Open the browser's address field again, the keys up.
+    BrowseEdit,
+    /// Follow the link at this block of the page shown.
+    BrowseLink(usize),
+    /// Back to the page before this one.
+    BrowseBack,
+    /// Read this page again.
+    BrowseReload,
     /// Put the file manager's entries in order by this.
     SortBy(SortKey),
     /// Turn that order round, or back.
@@ -1724,6 +1780,14 @@ pub struct State {
     pub vibration: f32,
     /// A computer connected over USB is offered internal storage.
     pub file_transfer: bool,
+    /// The screen lock is kept, so that the next start opens the users' own
+    /// files without asking for it.
+    pub remember: bool,
+    /// The WLAN is brought up as the recovery starts, and joins the network
+    /// whose password is kept.
+    pub wlan_auto: bool,
+    /// The password of the network joined last is kept.
+    pub wlan_keep: bool,
     /// A browser elsewhere on the network is offered the files in internal
     /// storage.
     pub wireless: bool,
@@ -1736,6 +1800,11 @@ pub struct State {
     /// it.
     pub fetch_url: String,
     pub fetch: Fetch,
+    /// The address the page another device types a link on is served at,
+    /// while the download page shows and the phone has one.
+    pub fetch_portal: Option<String>,
+    /// The recovery's own browser.
+    pub browser: Browse,
     /// The order the file manager lists a folder's entries in: what they
     /// are put in order by, whether the order is turned round, and whether
     /// folders stand before files.
@@ -1916,12 +1985,17 @@ impl Default for State {
             vibrate: true,
             vibration: SLIDER_START,
             file_transfer: true,
+            remember: false,
+            wlan_auto: false,
+            wlan_keep: false,
             // Offered to the network when it is asked for, and not before:
             // the files are the phone's own.
             wireless: false,
             wireless_url: None,
             wireless_served: 0,
             fetch_url: String::new(),
+            fetch_portal: None,
+            browser: Browse::default(),
             fetch: Fetch::Idle,
             // The stock file manager's own order to start with: folders
             // first, then by name.
@@ -2131,10 +2205,17 @@ pub enum Effect {
     /// Offer the files in internal storage to the network the phone is on,
     /// or stop.
     Wireless(bool),
+    /// Keep what opens the users' own files for the next start, or drop what
+    /// was kept and keep nothing.
+    Remember(bool),
     /// Take the file `url` offers into the downloads folder under `name`.
     StartFetch { url: String, name: String },
     /// Stop taking it.
     StopFetch,
+    /// Read /sdcard/Download/link.txt, where a computer put the address.
+    FetchFromFile,
+    /// Read `url` and tell the browser page with [`App::browsed`].
+    Browse(String),
     /// Start receiving a package over USB.
     Sideload,
     /// Start installing the file at this path from the top of a place,
@@ -2274,6 +2355,10 @@ pub enum Effect {
     /// Turn the WLAN on or off; how it stands comes back with
     /// [`App::set_wlan`].
     Wlan(bool),
+    /// The WLAN is to be brought up as the recovery starts, or no longer.
+    WlanAuto(bool),
+    /// The password joined with is to be kept, or what was kept dropped.
+    WlanKeep(bool),
     ScanWlan,
     JoinWlan { ssid: Vec<u8>, name: String, security: Security, password: Secret },
     LeaveWlan,
@@ -3463,11 +3548,42 @@ impl App {
     }
 
     pub fn data_waiting(&mut self, waiting: Option<(u32, Keys)>) {
+        let open = waiting.is_none();
         self.state.data = match waiting {
             Some((user, keys)) => Data::Locked { user, keys, checking: false },
             None => Data::Open,
         };
         self.state.code.clear();
+        // With nothing more to ask, the page that asked for the partition is
+        // left at once: the file manager it was opened from is where the
+        // files are, and the page has said all it has to say.
+        if open {
+            self.leave_decrypt();
+        }
+        self.refresh();
+    }
+
+    /// Leave the decrypt page, back to where it was opened from, or to the
+    /// home page where the recovery started on it.
+    fn leave_decrypt(&mut self) {
+        if self.screen() != Screen::Decrypt {
+            return;
+        }
+        self.leave(true);
+        if self.stack.len() > 1 {
+            self.stack.pop();
+        } else {
+            *self.top_mut() = (Screen::Home, 0.0, Focus::Unset);
+        }
+        self.settle_page();
+    }
+
+    /// The screen lock is being checked without the page having taken it:
+    /// a credential the phone kept is being tried.
+    pub fn data_checking(&mut self) {
+        if let Data::Locked { checking, .. } = &mut self.state.data {
+            *checking = true;
+        }
         self.refresh();
     }
 
@@ -4997,6 +5113,83 @@ impl App {
         self.refresh();
     }
 
+    /// The address the page a link is typed on is served at, while the
+    /// download page shows; none while it is not served.
+    pub fn set_fetch_portal(&mut self, at: Option<String>) {
+        if self.state.fetch_portal != at {
+            self.state.fetch_portal = at;
+            if self.screen() == Screen::Fetch {
+                self.refresh();
+            }
+        }
+    }
+
+    /// A link another device passed through that page: it fills the field,
+    /// ready to be started.
+    pub fn fetch_link(&mut self, link: String, now: u64) {
+        if self.screen() == Screen::Fetch {
+            self.state.fetch_url = link;
+            self.blink = None;
+            self.refresh();
+            self.say(self.state.lang.pick(["The address is filled in", "Адрес вставлен"]), now);
+        }
+    }
+
+    /// The address was not where the page went looking for it: why is said.
+    pub fn fetch_link_missing(&mut self, why: String, now: u64) {
+        self.say(&why, now);
+    }
+
+    /// Read the page at `url`, the pages gone through so far kept to go
+    /// back to. Nothing is asked of the network here: the runtime reads it
+    /// and tells [`App::browsed`].
+    fn browse_to(&mut self, url: String, now: u64) -> Vec<Effect> {
+        let url = url.trim().to_string();
+        if url.is_empty() {
+            self.say(self.state.lang.pick(["Enter an address", "Введите адрес"]), now);
+            return Vec::new();
+        }
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            self.say(
+                self.state.lang.pick(["An address starts with http:// or https://", "Адрес должен начинаться с http:// или https://"]),
+                now,
+            );
+            return Vec::new();
+        }
+        let b = &mut self.state.browser;
+        // The page shown is the one gone back to, unless it is this one.
+        if !b.at.is_empty() && b.at != url {
+            b.history.push(b.at.clone());
+            if b.history.len() > 32 {
+                b.history.remove(0);
+            }
+        }
+        b.url = url.clone();
+        b.at = url.clone();
+        b.status = BrowseStatus::Loading;
+        b.page = None;
+        b.typing = false;
+        self.refresh();
+        vec![Effect::Browse(url)]
+    }
+
+    /// The page at the address asked for has come, or it has not: how it
+    /// went is what the browser shows.
+    pub fn browsed(&mut self, page: Result<Page, String>) {
+        let b = &mut self.state.browser;
+        match page {
+            Ok(page) => {
+                b.page = Some(page);
+                b.status = BrowseStatus::Shown;
+            }
+            Err(why) => {
+                b.page = None;
+                b.status = BrowseStatus::Failed(why);
+            }
+        }
+        self.refresh();
+    }
+
     fn say(&mut self, text: &str, now: u64) {
         self.toast = Some((text.to_string(), now + TOAST_MS));
         self.dirty = true;
@@ -5434,6 +5627,37 @@ impl App {
             }
             Action::OpenData => return self.open_data(),
             Action::StopFetch => return vec![Effect::StopFetch],
+            Action::FetchFromFile => return vec![Effect::FetchFromFile],
+            // The browser: its field is opened for typing, and what is
+            // typed in it, or a link, is read.
+            Action::BrowseEdit => {
+                self.state.browser.typing = true;
+                self.refresh();
+            }
+            Action::BrowseGo => {
+                let url = self.state.browser.url.clone();
+                return self.browse_to(url, now);
+            }
+            Action::BrowseLink(at) => {
+                let to = self.state.browser.page.as_ref().and_then(|p| p.blocks.get(at)).and_then(|b| match b {
+                    Block::Link { to, .. } => Some(to.clone()),
+                    _ => None,
+                });
+                if let Some(to) = to {
+                    return self.browse_to(to, now);
+                }
+            }
+            Action::BrowseBack => {
+                if let Some(back) = self.state.browser.history.pop() {
+                    return self.browse_to(back, now);
+                }
+            }
+            Action::BrowseReload => {
+                let url = self.state.browser.at.clone();
+                if !url.is_empty() {
+                    return self.browse_to(url, now);
+                }
+            }
             Action::Skip => {
                 self.leave(true);
                 if self.stack.len() > 1 {
@@ -5478,6 +5702,9 @@ impl App {
                     Switch::KeepRecovery => &mut self.state.keep_recovery,
                     Switch::ShowPassword => &mut self.state.show_password,
                     Switch::Wireless => &mut self.state.wireless,
+                    Switch::Remember => &mut self.state.remember,
+                    Switch::WlanAuto => &mut self.state.wlan_auto,
+                    Switch::WlanKeep => &mut self.state.wlan_keep,
                     Switch::Wlan => unreachable!("the WLAN switch is turned above"),
                     Switch::FoldersFirst => unreachable!("the folders-first switch puts the list in order above"),
                 };
@@ -5489,6 +5716,15 @@ impl App {
                 }
                 if switch == Switch::Wireless {
                     return vec![Effect::Wireless(now_on)];
+                }
+                if switch == Switch::Remember {
+                    return vec![Effect::Remember(now_on)];
+                }
+                if switch == Switch::WlanAuto {
+                    return vec![Effect::WlanAuto(now_on)];
+                }
+                if switch == Switch::WlanKeep {
+                    return vec![Effect::WlanKeep(now_on)];
                 }
             }
             Action::MountToggle(i) => {
@@ -6001,6 +6237,7 @@ impl App {
             Screen::Decrypt => &mut self.state.code,
             Screen::Rename => &mut self.state.new_name,
             Screen::Fetch => &mut self.state.fetch_url,
+            Screen::Browser => &mut self.state.browser.url,
             Screen::WlanPassword => &mut self.state.password,
             Screen::WlanAdd => {
                 let a = self.state.adding.as_mut().expect("the page adds a network");
@@ -6230,6 +6467,12 @@ impl App {
                         self.refresh();
                         return vec![Effect::StartFetch { url, name }];
                     }
+                }
+                // The address typed on the browser's field is read: the
+                // keyboard gives way to the page.
+                Screen::Browser => {
+                    let url = self.state.browser.url.clone();
+                    return self.browse_to(url, now);
                 }
                 // A password the network's protection cannot take is turned
                 // down here; one it can goes, and the WLAN page shows how
@@ -7697,7 +7940,7 @@ mod tests {
     }
 
     /// A screen the home page's rows fit on with a little room to spare.
-    const SNUG: u32 = 3000;
+    const SNUG: u32 = 3200;
 
     #[test]
     fn a_home_page_grown_by_an_update_notice_scrolls_down_to_its_last_row() {
@@ -8495,6 +8738,43 @@ mod tests {
     }
 
     #[test]
+    fn the_browser_reads_the_address_it_is_given_and_goes_back_over_it() {
+        use skyward_net::html::Block;
+        let mut app = App::new(Screen::Browser, W, H, PPD);
+        app.state.browser.url = "https://example.com/a".into();
+        assert_eq!(app.act(Action::BrowseGo, 0), vec![Effect::Browse("https://example.com/a".into())]);
+        assert_eq!(app.state.browser.status, BrowseStatus::Loading);
+        assert!(!app.state.browser.typing, "the keys give way to the page");
+        app.browsed(Ok(Page {
+            title: "示例".into(),
+            blocks: vec![
+                Block::Words("你好".into()),
+                Block::Link { words: "下一页".into(), to: "https://example.com/b".into() },
+            ],
+        }));
+        assert_eq!(app.state.browser.status, BrowseStatus::Shown);
+        assert_eq!(app.state.browser.page.as_ref().map(|p| p.title.as_str()), Some("示例"));
+        // A link leads to the page it names, and back comes to this one.
+        assert_eq!(app.act(Action::BrowseLink(1), 10), vec![Effect::Browse("https://example.com/b".into())]);
+        assert_eq!(app.state.browser.history, vec!["https://example.com/a".to_string()]);
+        assert_eq!(app.act(Action::BrowseBack, 20), vec![Effect::Browse("https://example.com/a".into())]);
+        assert_eq!(app.state.browser.history, vec!["https://example.com/b".to_string()], "the page gone back from is the one to go forward to");
+        // A page that could not be read says why, and none is shown.
+        app.browsed(Err("服务器回了 404".into()));
+        assert_eq!(app.state.browser.status, BrowseStatus::Failed("服务器回了 404".into()));
+        assert!(app.state.browser.page.is_none());
+    }
+
+    #[test]
+    fn an_address_that_is_not_a_web_one_is_turned_down() {
+        let mut app = App::new(Screen::Browser, W, H, PPD);
+        app.state.browser.url = "example.com".into();
+        assert!(app.act(Action::BrowseGo, 0).is_empty(), "nothing is read");
+        assert!(app.toast.is_some(), "and the page says why");
+        assert_eq!(app.state.browser.status, BrowseStatus::Idle);
+    }
+
+    #[test]
     fn the_file_list_takes_the_order_the_pages_choose() {
         let mut app = App::new(Screen::Files, W, H, PPD);
         let mut big = entry("big.bin", FileKind::File);
@@ -9163,10 +9443,15 @@ mod tests {
         press(&mut app, Key::VolumeDown, 0);
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::About))));
         press(&mut app, Key::VolumeDown, 0);
+        assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Files))), "the file manager stands first among the tools");
+        press(&mut app, Key::VolumeDown, 0);
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Install))));
+        press(&mut app, Key::VolumeUp, 0);
+        assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Files))));
         press(&mut app, Key::VolumeUp, 0);
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::About))));
         press(&mut app, Key::VolumeUp, 0);
+        assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Search))), "the search bar is above the card");
         press(&mut app, Key::VolumeUp, 0);
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Reboot))), "up from the first goes round to the last");
         app.tick(5000);
@@ -9420,8 +9705,10 @@ mod tests {
         app.tick(REPEAT_DELAY_MS);
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::About))));
         app.tick(REPEAT_DELAY_MS + REPEAT_MS);
+        assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Files))), "the file manager, first among the tools");
+        app.tick(REPEAT_DELAY_MS + REPEAT_MS * 2);
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Install))));
-        app.key_up(Key::VolumeDown, REPEAT_DELAY_MS + REPEAT_MS + 10);
+        app.key_up(Key::VolumeDown, REPEAT_DELAY_MS + REPEAT_MS * 2 + 10);
         app.tick(REPEAT_DELAY_MS + REPEAT_MS * 5);
         assert_eq!(lit(&mut app, &f, &i), Some(Stop::Hit(Action::Open(Screen::Install))), "let go, it stops");
     }
@@ -10216,6 +10503,17 @@ mod tests {
     }
 
     #[test]
+    fn the_decrypt_page_is_left_once_nothing_is_asked_of_it() {
+        let mut app = App::new(Screen::Decrypt, W, H, PPD);
+        app.arrive();
+        app.data_waiting(Some((0, Keys::Digits)));
+        assert_eq!(app.screen(), Screen::Decrypt, "the page stays while the screen lock is asked for");
+        app.data_waiting(None);
+        assert_eq!(app.screen(), Screen::Home, "with nothing more to ask it goes on to the page behind it");
+        assert_eq!(app.stack.len(), 1, "and that page is alone behind it");
+    }
+
+    #[test]
     fn the_code_typed_on_the_keypad_is_sent_once_and_checked_before_more_is_taken() {
         let (f, i) = (fonts(), info());
         let mut app = App::new(Screen::Decrypt, W, H, PPD);
@@ -10461,6 +10759,7 @@ mod tests {
         assert_eq!(app.key(Key::Back, 0), vec![Effect::ReadDir("/".into())], "back climbs a folder");
         assert_eq!(app.screen(), Screen::Files);
         app.set_files("/".into(), Ok(vec![entry("vmlinux", FileKind::File), entry("init.rc", FileKind::File)]), LISTED);
+        // Listed by name whatever case, init.rc comes first.
         assert_eq!(tap(&mut app, &f, &i, Action::OpenEntry(0)), vec![Effect::OpenText("/init.rc".into())], "a text file opens to edit");
         assert_eq!(app.screen(), Screen::Files);
         tap(&mut app, &f, &i, Action::OpenEntry(1));
@@ -10476,11 +10775,11 @@ mod tests {
     fn a_file_in_internal_storage_is_chosen_once_the_storage_is_open() {
         let (f, i) = (fonts(), info());
         let mut app = opened(Screen::Install, &f, &i);
-        // Closed, the storage leads to the decrypt page, which comes back.
+        // Closed, the storage leads to the decrypt page, which comes back by
+        // itself once the partition opens.
         assert_eq!(tap(&mut app, &f, &i, Action::Open(Screen::Decrypt)), vec![Effect::OpenData]);
         app.data_waiting(None);
-        tap(&mut app, &f, &i, Action::Skip);
-        assert_eq!(app.screen(), Screen::Install);
+        assert_eq!(app.screen(), Screen::Install, "the page that asked for the partition has it back");
         let storage = Screen::Choose(Place::Storage);
         assert_eq!(tap(&mut app, &f, &i, Action::Open(storage)), vec![Effect::ReadPlace(Place::Storage, String::new())]);
         let listed = vec![

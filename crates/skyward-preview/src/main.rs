@@ -4,14 +4,15 @@ use skyward_info::{Battery, Boot, Charge, Cpu, DeviceInfo, PatchLevel, Storage};
 use skyward_install::{Failure, ImageKind, Outcome, Ramdisk, Reflash, Refusal, Stage};
 use skyward_net::download::{Failure as DownloadFailure, Progress};
 use skyward_net::github::{Build, Newest};
+use skyward_net::html::{Block, Page};
 use skyward_net::reach::Reach;
 use skyward_net::release::{Release, Unanswered};
 use skyward_net::supplicant::Security;
 use skyward_net::wlan::{Bands, Joined, Link, Network, Power, Stage as Joining, Traffic, Wlan};
 use skyward_systems::{Named, Other, Overview, Who};
 use skyward_ui::app::{
-    Action, Adding, App, Asked, BackupAt, BackupEnd, BackupEntry, BackupJob, BackupRefusal, Choice, Clip, Damage, Data, DownloadEnd,
-    DownloadJob, EraseStop, Field, FileKind, FileOp, FileRow, FileTask, FsAction, FsRow, Have, Held, Install, ItemEnd, JobEnd, Key, Keys,
+    Action, Adding, App, Asked, BackupAt, BackupEnd, BackupEntry, BackupJob, BackupRefusal, Browse, BrowseStatus, Choice, Clip, Damage, Data,
+    DownloadEnd, DownloadJob, EraseStop, Field, FileKind, FileOp, FileRow, FileTask, FsAction, FsRow, Have, Held, Install, ItemEnd, JobEnd, Key, Keys,
     MountFailure, MountRow, Part, PartKind, PartStop, Pick, Place, Screen, SkywardEnd, SkywardJob, SkywardStage, Source, SystemChoice,
     SystemsWork, TermEnd, Touch, UsbDrive, UsbLink, SCREEN_OFF,
 };
@@ -394,7 +395,7 @@ fn main() -> Result<()> {
     let adding = |app: &mut App, name: &str, security: Security, field: Field, choosing: bool| {
         app.state.adding = Some(Adding { name: name.into(), security, field, choosing });
     };
-    let pages: [PageShot; 178] = [
+    let pages: [PageShot; 182] = [
         ("11-install-light-locked", Screen::Install, false, &|app| {
             app.state.data = Data::Locked { user: 0, keys: Keys::Digits, checking: false };
         }),
@@ -517,7 +518,7 @@ fn main() -> Result<()> {
             app.state.backup_job = job(false, plan(), Some(BackupAt { item: 11, done: 300_000_000, of: 1_420_455_936, checking: true }), None)
         }),
         ("103-backup-job-light-saved", Screen::BackupJob, false, &|app| {
-            app.state.backup_job = job(false, plan(), None, Some(BackupEnd::Saved("20261021-200110".into())))
+            app.state.backup_job = job(false, plan(), None, Some(BackupEnd::Saved { name: "20261021-200110".into(), skipped: 0 }))
         }),
         ("104-backup-job-light-room", Screen::BackupJob, false, &|app| {
             let room = BackupRefusal::Room { needed: 52_400_000_000, free: 31_200_000_000 };
@@ -967,7 +968,10 @@ fn main() -> Result<()> {
         ("88-decrypt-light-checking", Screen::Decrypt, false, &|app| {
             app.state.data = Data::Locked { user: 0, keys: Keys::Digits, checking: true };
         }),
-        ("89-decrypt-light-open", Screen::Decrypt, false, &|app| app.data_waiting(None)),
+        ("89-decrypt-light-progress", Screen::Decrypt, false, &|app| {
+            app.state.data = Data::Opening;
+            app.data_progress(0.6);
+        }),
         ("90-decrypt-dark-failed", Screen::Decrypt, true, &|app| {
             app.data_failed("android.hardware.security.keymint.IKeyMintDevice/default is not running".into())
         }),
@@ -998,6 +1002,35 @@ fn main() -> Result<()> {
         ("99-erase-dark-locked", Screen::Erase, true, &|app| {
             app.erase_started(false, false, vec![Part::AppData, Part::AppCaches]);
             app.erase_ended(Err(EraseStop::Locked(vec![0, 999])), 0);
+        }),
+        ("205-decrypt-opening-light", Screen::Decrypt, false, &|app| {
+            app.state.data = Data::Opening;
+            app.state.opening = 0.4;
+        }),
+        ("206-fetch-portal-light", Screen::Fetch, false, &|app| {
+            app.state.fetch_portal = Some("http://192.168.31.144:8081/".into());
+        }),
+        ("207-browser-light", Screen::Browser, false, &|app| {
+            app.state.browser = Browse {
+                url: "https://example.com/".into(),
+                at: "https://example.com/".into(),
+                page: Some(Page {
+                    title: "Example Domain".into(),
+                    blocks: vec![
+                        Block::Heading("Example Domain".into()),
+                        Block::Words("This domain is for use in illustrative examples in documents. You may use this domain in literature without prior coordination or asking for permission.".into()),
+                        Block::Link { words: "More information...".into(), to: "https://www.iana.org/help/example-domains".into() },
+                    ],
+                }),
+                status: BrowseStatus::Shown,
+                history: Vec::new(),
+                typing: false,
+            };
+        }),
+        ("208-settings-security-dark", Screen::Settings, true, &|app| {
+            app.state.remember = true;
+            app.state.wlan_auto = true;
+            app.state.wlan_keep = true;
         }),
     ];
     for (name, screen, dark, set) in pages {

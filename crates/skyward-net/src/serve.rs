@@ -27,7 +27,7 @@ pub enum Tongue {
 }
 
 impl Tongue {
-    fn pick(self, en: &'static str, ru: &'static str) -> &'static str {
+    pub(crate) fn pick(self, en: &'static str, ru: &'static str) -> &'static str {
         match self {
             Tongue::En => en,
             Tongue::Ru => ru,

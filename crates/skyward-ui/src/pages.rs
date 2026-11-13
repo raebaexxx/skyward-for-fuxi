@@ -1,5 +1,5 @@
 use crate::app::{
-    Action, BackupAt, BackupEnd, BackupJob, Check, ClashChoice, Confirm, Damage, Data, Dock, DownloadEnd, EraseStop, Fetch, Field, FileKind,
+    Action, BackupAt, BackupEnd, BackupJob, BrowseStatus, Check, ClashChoice, Confirm, Damage, Data, Dock, DownloadEnd, EraseStop, Fetch, Field, FileKind,
     FileOp, FileTask, Fold, Folder, Frame, FsAction, FsChoice, FsRow, Have, HeroArt, Hit, Install, JobEnd, Keys, Pick, Place, Rows, Screen,
     SkywardCheck, SkywardEnd, SkywardJob, SkywardStage, Slider, SortKey, Source, State, Switch, SystemsWork, Target, UsbDrive, UsbLink, Wipe,
     ADDABLE,
@@ -19,10 +19,11 @@ use crate::term::{self, Term};
 use crate::theme::Theme;
 use crate::tr;
 use crate::icons::{self, Icon};
-use crate::widgets::{self, Caption, Detail, Fact, Outline, Row, Spec, SystemCard, SystemMark, Tone, Trail};
+use crate::widgets::{self, Cap, Caption, Detail, Fact, Outline, Row, Spec, SystemCard, SystemMark, Tone, Trail};
 use skyward_info::{DeviceInfo, BUILDER, VERSION};
 use skyward_install::{Outcome, Reflash, Refusal, Stage};
 use skyward_net::download::Progress;
+use skyward_net::html::Block;
 use skyward_net::supplicant::Security;
 use skyward_net::wlan::{Bands, Network, Power, Stage as Joining};
 use skyward_systems::Who;
@@ -113,6 +114,7 @@ pub fn render(screen: Screen, cx: &Ctx) -> Frame {
         Screen::Wireless => wireless(cx),
         Screen::Fetch => fetch(cx),
         Screen::Sort => sort(cx),
+        Screen::Browser => browser(cx),
     }
 }
 
@@ -290,6 +292,7 @@ pub fn home(cx: &Ctx) -> Frame {
         y = first.bottom + t.m.card_gap;
     }
     let tools = widgets::list(&mut c, t, f, y, &[
+        Row::new(l.pick(FILES)).icon(BLUE, Icon::Folder),
         Row::new(l.pick(["Install", "Установить"])).icon(GREEN, Icon::Install),
         Row::new(l.pick(["Backup", "Резервная копия"])).icon(BLUE, Icon::Backup),
         Row::new(l.pick(["Restore", "Восстановить"])).icon(PURPLE, Icon::Restore),
@@ -297,6 +300,7 @@ pub fn home(cx: &Ctx) -> Frame {
         Row::new(l.pick(DECRYPT)).icon(BLUE, Icon::Lock).trail(Trail::Value(fmt::data(l, &cx.state.data))),
     ]);
     out.extend(hits(&tools.rows, &[
+        Action::Open(Screen::Files),
         Action::Open(Screen::Install),
         Action::Open(Screen::Backup),
         Action::Open(Screen::Restore),
@@ -388,6 +392,14 @@ pub fn settings(cx: &Ctx) -> Frame {
         "Когда включено, компьютер может управлять файлами во внутренней памяти, как только она расшифрована.",
     ]);
     y = widgets::footnote(&mut c, t, f, usb.bottom, note);
+    y = widgets::section(&mut c, t, f, y, l.pick(["Security", "Безопасность"]));
+    let security = widgets::list(&mut c, t, f, y, &[Row::new(l.pick(REMEMBER)).icon(ORANGE, Icon::Lock).trail(Trail::Switch(s.remember))]);
+    out.extend(hits(&security.rows, &[Action::Toggle(Switch::Remember)]));
+    let note = l.pick([
+        "When on, the screen lock is kept on /metadata so the next start decrypts without asking. Turn it off where someone else may get the phone.",
+        "Когда включено, пароль экрана сохраняется в /metadata, и при следующем запуске расшифровка пройдёт без вопроса. Выключите, если телефоном может воспользоваться кто-то другой.",
+    ]);
+    y = widgets::footnote(&mut c, t, f, security.bottom, note);
     y = widgets::section(&mut c, t, f, y, l.pick(["Debugging", "Отладка"]));
     let debug = widgets::list(&mut c, t, f, y, &[Row::new(l.pick(TERMINAL)).icon(SLATE, Icon::Terminal)]);
     out.extend(hits(&debug.rows, &[Action::Open(Screen::Terminal)]));
@@ -694,15 +706,22 @@ pub fn decrypt(cx: &Ctx) -> Frame {
     let (c, l) = (page(cx), cx.state.lang);
     match &cx.state.data {
         Data::Locked { user, keys, checking } => code(cx, c, *user, *keys, *checking),
-        Data::Closed | Data::Opening => data_status(
-            cx,
-            c,
-            Icon::Lock,
-            l.pick(["Decrypt the data partition", "Расшифруйте раздел данных"]),
-            Some(l.pick(["Reading the screen lock", "Чтение блокировки экрана"])),
-            None,
-            matches!(cx.state.data, Data::Opening).then_some(cx.state.opening),
-        ),
+        Data::Closed | Data::Opening => {
+            let opening = matches!(cx.state.data, Data::Opening);
+            let note = match opening {
+                true => data_stage(l, cx.state.opening),
+                false => l.pick(["Reading the screen lock", "Чтение блокировки экрана"]),
+            };
+            data_status(
+                cx,
+                c,
+                Icon::Lock,
+                l.pick(["Decrypt the data partition", "Расшифруйте раздел данных"]),
+                Some(note),
+                None,
+                opening.then_some(cx.state.opening),
+            )
+        }
         Data::Open => data_status(
             cx,
             c,
@@ -725,6 +744,19 @@ pub fn decrypt(cx: &Ctx) -> Frame {
     }
 }
 
+/// What the opening of the data partition is at, as its page says it: the
+/// steps the work reports, from the partition being opened to the users'
+/// keys being installed.
+fn data_stage(l: Lang, value: f32) -> &'static str {
+    match (value * 5.0).round() as u8 {
+        0 | 1 => l.pick(["Opening the partition", "Открытие раздела"]),
+        2 => l.pick(["Installing the shared keys", "Установка общих ключей"]),
+        3 => l.pick(["Reading the users' keys", "Чтение ключей пользователей"]),
+        4 => l.pick(["Registering the system services", "Регистрация системных служб"]),
+        _ => l.pick(["Finishing", "Завершение"]),
+    }
+}
+
 /// Where the partition stands, under its sign: a line on it, or why it
 /// did not open and a way to try again; then the way off the page.
 fn data_status(cx: &Ctx, mut c: Canvas, icon: Icon, title: &str, note: Option<&str>, why: Option<&str>, progress: Option<f32>) -> Frame {
@@ -734,12 +766,21 @@ fn data_status(cx: &Ctx, mut c: Canvas, icon: Icon, title: &str, note: Option<&s
     let sign_cy = m.dp(150.0);
     c.fill_circle(x, sign_cy, m.dp(30.0), t.pal.card);
     icons::glyph(&mut c, icon, x, sign_cy, m.dp(40.0), t.pal.accent);
+    // While the partition is being opened, the sign wears the share of the
+    // work done as a ring, as the page this one is taken from has it.
+    if let Some(value) = progress {
+        let r = m.dp(38.0);
+        let thin = m.dp(2.5);
+        c.stroke_circle(x, sign_cy, r, thin, t.pal.text.with_alpha(28));
+        let start = -std::f32::consts::FRAC_PI_2;
+        c.stroke_arc(x, sign_cy, r, start, std::f32::consts::TAU * value.clamp(0.0, 1.0), thin, t.pal.accent);
+    }
     c.text_center(&f.heading, title, x, sign_cy + m.dp(64.0), m.dp(24.0), t.pal.text);
     if let Some(note) = note {
         c.text_center(&f.body, note, x, sign_cy + m.dp(98.0), m.sub_px, t.pal.subtitle);
     }
     if let Some(value) = progress {
-        widgets::progress_bar(&mut c, t, x - m.dp(80.0), sign_cy + m.dp(122.0), m.dp(160.0), value);
+        widgets::progress_bar(&mut c, t, x - m.dp(100.0), sign_cy + m.dp(122.0), m.dp(200.0), value);
     }
     let mut out = Vec::new();
     if let Some(why) = why {
@@ -2035,7 +2076,7 @@ fn part_state(l: Lang, job: &BackupJob, k: usize) -> String {
     let (did, doing) = job_words(job.restore);
     let ended = job.outcome.is_some();
     let a = match (&job.outcome, job.at) {
-        (Some(BackupEnd::Saved(_)), _) => return l.pick(if job.checks { VERIFIED } else { did }).to_string(),
+        (Some(BackupEnd::Saved { .. }), _) => return l.pick(if job.checks { VERIFIED } else { did }).to_string(),
         (Some(BackupEnd::Restored { .. }), _) => return l.pick(did).to_string(),
         (_, None) => return l.pick(if ended { ["Not started", "Не начато"] } else { WAITING_TURN }).to_string(),
         (_, Some(a)) => a,
@@ -2094,7 +2135,7 @@ pub fn backup_job(cx: &Ctx) -> Frame {
             let gone = l.pick(if job.restore { ["Nothing was written.", "Ничего не было записано."] } else { ["No backup was saved.", "Резервная копия не сохранена."] });
             let failed = l.pick(if job.restore { RESTORE_FAILED } else { ["Backup failed", "Не удалось создать резервную копию"] });
             let (title, color, detail) = match end {
-                BackupEnd::Saved(name) => {
+                BackupEnd::Saved { name, skipped } => {
                     let saved = match job.place {
                         Place::Storage => tr!(
                             l,
@@ -2103,7 +2144,14 @@ pub fn backup_job(cx: &Ctx) -> Frame {
                         ),
                         Place::UsbDrive => tr!(l, "Saved to Skyward/backups/{name} on the USB drive", "Сохранено в Skyward/backups/{name} на USB-накопителе"),
                     };
-                    (l.pick(BACKUP_COMPLETE), GREEN, saved)
+                    (l.pick(BACKUP_COMPLETE), GREEN, match *skipped {
+                        0 => saved,
+                        n => tr!(
+                            l,
+                            "{saved} ({n} files couldn't be read and were left out)",
+                            "{saved} (не удалось прочитать {n} файлов, они пропущены)"
+                        ),
+                    })
                 }
                 BackupEnd::Restored { .. } => {
                     (l.pick(RESTORE_COMPLETE), GREEN, l.pick(["The phone uses what was restored once it reboots.", "Телефон начнёт использовать восстановленное после перезагрузки."]).to_string())
@@ -2188,7 +2236,7 @@ pub fn backup_job(cx: &Ctx) -> Frame {
     }
     let title = l.pick(match (&job.outcome, job.restore) {
         (None, restore) => job_words(restore).1,
-        (Some(BackupEnd::Saved(_)), _) => BACKUP_COMPLETE,
+        (Some(BackupEnd::Saved { .. }), _) => BACKUP_COMPLETE,
         (Some(BackupEnd::Restored { .. }), _) => RESTORE_COMPLETE,
         (Some(_), false) => ["Backup incomplete", "Резервная копия создана не полностью"],
         (Some(_), true) => ["Restore incomplete", "Восстановление не завершено"],
@@ -2217,6 +2265,7 @@ pub fn advanced(cx: &Ctx) -> Frame {
         Row::new(l.pick(UPDATE)).icon(GREEN, Icon::Layers).trail(Trail::Value(update_value(cx))),
         Row::new(l.pick(WIRELESS)).icon(GREEN, Icon::Wlan).trail(Trail::Value(wireless)),
         Row::new(l.pick(FETCH)).icon(BLUE, Icon::Globe),
+        Row::new(l.pick(BROWSER)).icon(PURPLE, Icon::Globe),
     ]);
     let out = hits(&tools.rows, &[
         Action::Open(Screen::Files),
@@ -2228,10 +2277,21 @@ pub fn advanced(cx: &Ctx) -> Frame {
         Action::Open(Screen::Update),
         Action::Open(Screen::Wireless),
         Action::Open(Screen::Fetch),
+        Action::Open(Screen::Browser),
     ]);
     Frame::new(t, fit(c, t, tools.bottom), out, l.pick(ADVANCED), top)
 }
 
+const BROWSER: Text = ["Browser", "Браузер"];
+const BROWSE_HINT: Text = ["Type an address, such as https://example.com", "Введите адрес, например https://example.com"];
+const BROWSE_OPEN: Text = ["Open", "Открыть"];
+const BROWSE_BACK: Text = ["Back", "Назад"];
+const BROWSE_RELOAD: Text = ["Reload", "Обновить"];
+const BROWSE_LOADING: Text = ["Reading…", "Чтение…"];
+const BROWSE_EMPTY: Text = [
+    "This page holds no words to show: it may need its scripts to draw itself.",
+    "На этой странице нет текста для показа: возможно, ей нужны скрипты.",
+];
 const RELABEL: Text = ["Fix SELinux contexts", "Исправить контексты SELinux"];
 const FILESYSTEMS: Text = ["Filesystems", "Файловые системы"];
 const STOPPED: Text = ["Stopped", "Остановлено"];
@@ -2905,6 +2965,24 @@ pub fn wlan(cx: &Ctx) -> Frame {
     let switch = widgets::list(&mut c, t, f, top, &[Row::new(l.pick(WLAN)).trail(Trail::Switch(on))]);
     out.extend(hits(&switch.rows, &[Action::Toggle(Switch::Wlan)]));
     let mut y = switch.bottom;
+    // Whether it is brought up by itself at the next start, and whether the
+    // password is kept, under the switch that turns it on.
+    let kept = widgets::list(
+        &mut c,
+        t,
+        f,
+        y + t.m.card_gap,
+        &[
+            Row::new(l.pick(["Connect by itself", "Подключаться автоматически"]))
+                .subtitle(l.pick(["Turns Wi-Fi on at the next start and joins the network joined last", "Включает Wi-Fi при следующем запуске и подключается к последней сети"]))
+                .trail(Trail::Switch(s.wlan_auto)),
+            Row::new(l.pick(["Keep the password", "Запоминать пароль"]))
+                .subtitle(l.pick(["Keeps the network joined last and its password", "Хранит последнюю сеть и её пароль"]))
+                .trail(Trail::Switch(s.wlan_keep)),
+        ],
+    );
+    out.extend(hits(&kept.rows, &[Action::Toggle(Switch::WlanAuto), Action::Toggle(Switch::WlanKeep)]));
+    y = kept.bottom;
     match &w.power {
         Power::Off => {
             let note = l.pick([
@@ -3149,20 +3227,70 @@ pub fn wireless(cx: &Ctx) -> Frame {
 }
 
 const WIRELESS: Text = ["Wireless transfer", "Беспроводная передача"];
+const REMEMBER: Text = ["Remember the screen lock", "Запоминать пароль экрана"];
 
 /// A file taken from an address typed on the screen's keyboard, into the
 /// downloads folder: the address, how far it has come, and how it ended.
 pub fn fetch(cx: &Ctx) -> Frame {
     let (t, f, s, l) = (cx.t, cx.f, cx.state, cx.state.lang);
+    let m = &t.m;
     let mut c = page(cx);
     let mut out = Vec::new();
-    let top = t.m.content_top;
+    let top = m.content_top;
     let (mut y, caret) = widgets::text_field(&mut c, t, f, top, &s.fetch_url);
-    let note = l.pick([
-        "It starts with http:// or https://, and is saved in Download in internal storage.",
-        "Он начинается с http:// или https:// и сохраняется в Download во внутренней памяти.",
+    // The keys take the bottom of the screen: what the page puts above them
+    // is planned against the room left over.
+    let floor = m.h as f32 - widgets::keyboard_height(t) - m.dp(8.0);
+    let running = matches!(s.fetch, Fetch::Running { .. });
+    // The button, of its own width in the middle of the page.
+    let (bh, bw) = (m.dp(48.0), m.dp(220.0).min(m.w as f32 - m.margin * 2.0));
+    let (bx, by) = ((m.w as f32 - bw) / 2.0, y + m.dp(14.0));
+    c.fill_round_rect(bx, by, bw, bh, bh / 2.0, t.pal.accent);
+    let label = l.pick(if running { STOP_FETCH } else { START_FETCH });
+    c.text_center(&f.heading, label, bx + bw / 2.0, by + bh / 2.0, m.row_title_px, Rgba::rgb(255, 255, 255));
+    let button = Rect::new(bx, by, bw, bh);
+    out.push(Hit { rect: button, action: if running { Action::StopFetch } else { Action::Type(Cap::Enter) } });
+    y = by + bh;
+    // A link too long to type can be put in a small file from a computer,
+    // and taken from there with one tap.
+    y += m.dp(12.0);
+    let from_file = l.pick([
+        "Take the link from /sdcard/Download/link.txt",
+        "Взять ссылку из /sdcard/Download/link.txt",
     ]);
-    y = widgets::footnote(&mut c, t, f, y, note);
+    c.text_center(&f.body, from_file, m.w as f32 / 2.0, y + m.dp(16.0), m.sub_px, t.pal.accent);
+    out.push(Hit { rect: Rect::new(m.margin, y, m.w as f32 - m.margin * 2.0, m.dp(32.0)), action: Action::FetchFromFile });
+    y += m.dp(32.0);
+    // A link too long for this keyboard can be typed on another device,
+    // which opens a page this recovery serves; the code below is where that
+    // page is.
+    if let Some(at) = &s.fetch_portal {
+        let caption = m.dp(56.0);
+        let room = (floor - y - caption - m.dp(14.0)).max(m.dp(72.0));
+        let side = m.dp(168.0).min(m.w as f32 - m.margin * 2.0).min(room);
+        let x0 = (m.w as f32 - side) / 2.0;
+        let quiet = 2.0f32;
+        if let Ok(code) = qrcodegen::QrCode::encode_text(at, qrcodegen::QrCodeEcc::Medium) {
+            let n = code.size();
+            let cell = side / (n as f32 + quiet * 2.0);
+            c.fill_round_rect(x0 - m.dp(10.0), y - m.dp(4.0), side + m.dp(20.0), side + m.dp(20.0), m.dp(12.0), Rgba::rgb(255, 255, 255));
+            for row in 0..n {
+                for col in 0..n {
+                    if code.get_module(col, row) {
+                        let px = x0 + (col as f32 + quiet) * cell;
+                        let py = y + m.dp(4.0) + (row as f32 + quiet) * cell;
+                        c.fill_rect(px, py, cell + 0.5, cell + 0.5, Rgba::rgb(12, 12, 16));
+                    }
+                }
+            }
+        }
+        y += side + m.dp(16.0);
+        let how = l.pick([
+            "Scan this on another device, type the address there, and it fills the field above",
+            "Отсканируйте на другом устройстве, введите адрес там, и он появится в поле выше",
+        ]);
+        y = widgets::footnote(&mut c, t, f, y - m.dp(8.0), how);
+    }
     match &s.fetch {
         Fetch::Idle => {}
         Fetch::Running { name, done, total, rate } => {
@@ -3171,12 +3299,8 @@ pub fn fetch(cx: &Ctx) -> Frame {
             let (came, all, pace) = (fmt::file_size(*done), fmt::file_size(*total), fmt::file_size(*rate));
             let how = tr!(l, "{came} of {all}", "{came} из {all}");
             let speed = tr!(l, "{pace}/s", "{pace}/s");
-            let rows = [
-                Row::new(name.as_str()).icon(BLUE, Icon::Folder).subtitle(&how).trail(Trail::Value(speed.as_str())),
-                Row::new(l.pick(["Stop downloading", "Остановить загрузку"])).tint(t.pal.danger).trail(Trail::None),
-            ];
-            let list = widgets::list(&mut c, t, f, y + t.m.dp(18.0), &rows);
-            out.extend(hits(&list.rows[1..], &[Action::StopFetch]));
+            let rows = [Row::new(name.as_str()).icon(BLUE, Icon::Folder).subtitle(&how).trail(Trail::Value(speed.as_str()))];
+            widgets::list(&mut c, t, f, y + t.m.dp(18.0), &rows);
         }
         Fetch::Done { name } => {
             let saved = l.pick(["Saved in Download in internal storage", "Сохранено в Download во внутренней памяти"]);
@@ -3198,10 +3322,144 @@ pub fn fetch(cx: &Ctx) -> Frame {
 }
 
 const FETCH: Text = ["Download", "Загрузка"];
-const START_FETCH: Text = ["Download", "Загрузка"];
+const START_FETCH: Text = ["Download", "Скачать"];
+const STOP_FETCH: Text = ["Stop", "Остановить"];
 
 /// The order the file manager lists entries in: what they are put in order
 /// by, which way, and whether folders stand before files.
+/// A block of a page laid out: its lines, where they start on the page, and
+/// what they are.
+struct Placed {
+    lines: Vec<String>,
+    top: f32,
+    pitch: f32,
+    px: f32,
+    kind: Kind,
+}
+
+/// What a laid-out block is: a heading, words, a link to somewhere, or a
+/// note on how reading went.
+enum Kind {
+    Heading,
+    Words,
+    Link(usize),
+    Note,
+}
+
+/// The recovery's own browser: the address it is at, the pages gone through,
+/// and what the page says in its markup — headings, paragraphs, and links a
+/// finger follows.
+pub fn browser(cx: &Ctx) -> Frame {
+    let (t, f, s, l) = (cx.t, cx.f, cx.state, cx.state.lang);
+    let m = &t.m;
+    let b = &s.browser;
+    let top = m.content_top;
+    // Typing the address: the field and the keys, over nothing else.
+    if b.typing {
+        let mut c = page(cx);
+        let mut out = Vec::new();
+        let (y, caret) = widgets::text_field(&mut c, t, f, top, &b.url);
+        widgets::footnote(&mut c, t, f, y, l.pick(BROWSE_HINT));
+        keyboard_hits(&mut c, t, f, s, l.pick(BROWSE_OPEN), &mut out);
+        return Frame { caret: Some(caret), ..Frame::new(t, c, out, l.pick(BROWSER), top) };
+    }
+    // Reading: the address and the way back over it, then the page's words.
+    let x = m.title_x;
+    let max_w = m.w as f32 - x - m.title_x;
+    let mut rows = Vec::new();
+    let mut picks = Vec::new();
+    if !b.history.is_empty() {
+        rows.push(Row::new(l.pick(BROWSE_BACK)));
+        picks.push(Action::BrowseBack);
+    }
+    let shown = match b.at.is_empty() {
+        true => l.pick(BROWSE_HINT).to_string(),
+        false => b.at.clone(),
+    };
+    rows.push(Row::new(&shown).icon(BLUE, Icon::Globe));
+    picks.push(Action::BrowseEdit);
+    if !b.at.is_empty() {
+        rows.push(Row::new(l.pick(BROWSE_RELOAD)));
+        picks.push(Action::BrowseReload);
+    }
+    let rows_h = m.row_h * rows.len() as f32;
+    let mut y = top + rows_h + m.dp(8.0);
+    let measure = Canvas::new(2, 2);
+    let mut placed: Vec<Placed> = Vec::new();
+    // How reading stands, and what it came to.
+    let note = match &b.status {
+        BrowseStatus::Loading => Some(l.pick(BROWSE_LOADING).to_string()),
+        BrowseStatus::Failed(why) => Some(why.clone()),
+        _ => None,
+    };
+    if let Some(text) = note {
+        let lines = widgets::wrap(&measure, &f.body, &text, m.sub_px, max_w);
+        let h = lines.len() as f32 * m.sub_pitch;
+        placed.push(Placed { lines, top: y, pitch: m.sub_pitch, px: m.sub_px, kind: Kind::Note });
+        y += h;
+    }
+    if let Some(page) = &b.page {
+        let heading = &f.heading;
+        if !page.title.is_empty() {
+            y += m.dp(10.0);
+            let lines = widgets::wrap(&measure, heading, &page.title, m.dp(22.0), max_w);
+            let h = lines.len() as f32 * m.dp(28.0);
+            placed.push(Placed { lines, top: y, pitch: m.dp(28.0), px: m.dp(22.0), kind: Kind::Heading });
+            y += h;
+        }
+        for (at, block) in page.blocks.iter().enumerate() {
+            let (words, kind) = match block {
+                Block::Heading(words) => (words, Kind::Heading),
+                Block::Words(words) => (words, Kind::Words),
+                Block::Link { words, .. } => (words, Kind::Link(at)),
+            };
+            let (px, pitch, gap, face) = match kind {
+                Kind::Heading => (m.dp(20.0), m.dp(26.0), m.dp(12.0), heading),
+                _ => (m.sub_px, m.sub_pitch, m.dp(4.0), &f.body),
+            };
+            y += gap;
+            let lines = widgets::wrap(&measure, face, words, px, max_w);
+            if lines.is_empty() {
+                continue;
+            }
+            let h = lines.len() as f32 * pitch;
+            placed.push(Placed { lines, top: y, pitch, px, kind });
+            y += h;
+        }
+        if page.blocks.is_empty() && matches!(b.status, BrowseStatus::Shown) {
+            let text = l.pick(BROWSE_EMPTY);
+            let lines = widgets::wrap(&measure, &f.body, text, m.sub_px, max_w);
+            let h = lines.len() as f32 * m.sub_pitch;
+            placed.push(Placed { lines, top: y + m.dp(10.0), pitch: m.sub_pitch, px: m.sub_px, kind: Kind::Note });
+            y += h + m.dp(10.0);
+        }
+    }
+    let bottom = y + m.dp(10.0);
+    let mut c = sheet(cx, fitted(t, bottom), t.pal.bg);
+    let mut out = Vec::new();
+    let list = widgets::list(&mut c, t, f, top, &rows);
+    out.extend(hits(&list.rows, &picks));
+    for p in &placed {
+        let (face, ink) = match &p.kind {
+            Kind::Heading => (&f.heading, t.pal.text),
+            Kind::Words => (&f.body, t.pal.info),
+            Kind::Link(_) => (&f.body, t.pal.accent),
+            Kind::Note => (&f.body, t.pal.subtitle),
+        };
+        for (i, line) in p.lines.iter().enumerate() {
+            c.text_top(face, line, x, p.top + i as f32 * p.pitch, p.px, ink, None);
+        }
+        if let Kind::Link(at) = &p.kind {
+            let h = p.lines.len() as f32 * p.pitch;
+            out.push(Hit {
+                rect: Rect::new(x - m.dp(2.0), p.top - m.dp(2.0), max_w + m.dp(4.0), h + m.dp(4.0)),
+                action: Action::BrowseLink(*at),
+            });
+        }
+    }
+    Frame::new(t, c, out, l.pick(BROWSER), top)
+}
+
 pub fn sort(cx: &Ctx) -> Frame {
     let (t, f, s, l) = (cx.t, cx.f, cx.state, cx.state.lang);
     let mut c = long_page(cx);
@@ -4214,7 +4472,7 @@ mod tests {
         assert_eq!(states(&b), ["Проверка 25%", "Скопировано"]);
         b.outcome = Some(BackupEnd::Failed("the backup does not hold what was stored".into()));
         assert_eq!(states(&b), ["Незавершено", "Не проверено"]);
-        b.outcome = Some(BackupEnd::Saved("20261021-141639".into()));
+        b.outcome = Some(BackupEnd::Saved { name: "20261021-141639".into(), skipped: 0 });
         assert_eq!(states(&b), ["Проверено", "Проверено"]);
         let mut r = job(true, true);
         r.at = Some(at(1, 0, 800, true));

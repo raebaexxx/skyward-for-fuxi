@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "android")]
 mod backup;
 #[cfg(target_os = "android")]
+mod browser;
+#[cfg(target_os = "android")]
+mod credential;
+#[cfg(target_os = "android")]
 mod decrypt;
 #[cfg(target_os = "android")]
 mod filework;
@@ -41,6 +45,8 @@ mod updates;
 mod wipe;
 #[cfg(target_os = "android")]
 mod wlan;
+#[cfg(target_os = "android")]
+mod wlanmem;
 
 #[derive(Parser)]
 #[command(name = "skyward", version, about = "Skyward recovery")]
