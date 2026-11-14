@@ -181,8 +181,15 @@ pub fn find<'a>(binder: &'a crate::driver::Binder, name: &str) -> Result<Option<
 /// vendor's own Android version does.
 #[cfg(target_os = "android")]
 pub fn find_vendor<'a>(binder: &'a crate::driver::Binder, name: &str) -> Result<Option<crate::driver::Handle<'a>>> {
-    let methods = vendor_methods()?;
-    find_marked(binder, name, crate::parcel::VENDOR_HEADER, methods)
+    let vendor = vendor_methods()?;
+    match find_marked(binder, name, crate::parcel::VENDOR_HEADER, vendor) {
+        // A phone whose bundle of vendor libraries is not open runs the
+        // vendor's directory against the recovery's own libbinder: it
+        // reads the recovery's mark, and numbers its methods as the
+        // recovery does.
+        Err(e) if wrong_kind(&e) => find_marked(binder, name, crate::parcel::header(), methods()?),
+        other => other,
+    }
 }
 
 #[cfg(target_os = "android")]
