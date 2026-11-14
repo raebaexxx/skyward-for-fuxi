@@ -4,6 +4,7 @@ use crate::decrypt::{self, Decryptor};
 use crate::filework;
 use crate::haptics::Haptics;
 use crate::relabel;
+use crate::stage;
 use crate::input::{monotonic_ms, Event, Inputs};
 use crate::merge;
 use crate::partwork;
@@ -1332,6 +1333,26 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
     // tried: a phone whose WLAN is not up yet is tried again while it shows.
     let mut portal: Option<portal::Portal> = None;
     let mut portal_tried: Option<Instant> = None;
+    // A phone whose data partition keeps no key cannot open it — a
+    // partition a factory reset emptied, or one never built — and there is
+    // nothing there to put a package in. A piece of the memory is shown where
+    // the phone's storage shows instead, so that one can still be brought in
+    // over the network or from a computer and flashed; it is taken away again
+    // before the partition is opened.
+    if !skyward_crypto::data::key_kept() {
+        match stage::make() {
+            Ok(true) => {
+                skyward_sys::kmsg("the data partition keeps no key, so the phone's memory stands in for its storage until a system makes one")?;
+                let said = app.state.lang.pick([
+                    "No key is kept for data yet: the phone's memory stands in for its storage, so a package can be put there; a restart empties it",
+                    "Для data ещё нет ключа: вместо внутренней памяти используется ОЗУ, туда можно положить пакет; перезагрузка её очистит",
+                ]);
+                app.notice(said, monotonic_ms());
+            }
+            Ok(false) => {}
+            Err(e) => skyward_sys::kmsg(&format!("the phone's memory could not stand in for its storage: {e:#}"))?,
+        }
+    }
     if app.state.file_transfer {
         match Transfer::start(cfg, &info, app.state.time_zone) {
             Ok(t) => transfer = Some(t),
@@ -1430,12 +1451,12 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
         }
         Work::Sideload { .. } => {
             app.start_sideload();
-            installer = Some(Installer::start(detach(cfg.services.clone()), install_options(&app))?);
+            installer = Some(Installer::start(detach(programs.to_vec()), install_options(&app))?);
             sideloading = true;
         }
         Work::Rescue => {
             app.start_rescue();
-            installer = Some(Installer::rescue(detach(cfg.services.clone()), install_options(&app))?);
+            installer = Some(Installer::rescue(detach(programs.to_vec()), install_options(&app))?);
             sideloading = true;
         }
         Work::Update(update) => {
@@ -2385,16 +2406,36 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                     relist_after_open(&mut app)?;
                 }
                 decrypt::Ended::Rebuilt(Ok(())) => {
-                    skyward_sys::kmsg("the data partition is built afresh: its key is made and its filesystem too")?;
-                    // What was just built is opened the way any partition is.
-                    app.open_data();
-                    decryptor = Some(Decryptor::start(decrypt::Job::Open)?);
+                    skyward_sys::kmsg("the data partition has a new filesystem, and the key it was opened with is gone: the system makes a new one when it next starts")?;
+                    // Nothing opens it now; what is to be flashed can be put
+                    // in memory meanwhile.
+                    app.data_made_afresh();
+                    let said = app.state.lang.pick([
+                        "Data has a new filesystem; the system makes its key when it next starts",
+                        "data получил новую файловую систему; система создаст ключ при следующем запуске",
+                    ]);
+                    app.notice(said, monotonic_ms());
+                    match stage::make() {
+                        Ok(true) => skyward_sys::kmsg("the phone's memory stands in for its storage until a system makes the key")?,
+                        Ok(false) => {}
+                        Err(e) => skyward_sys::kmsg(&format!("the phone's memory could not stand in for its storage: {e:#}"))?,
+                    }
                 }
                 decrypt::Ended::Rebuilt(Err(why)) => {
                     skyward_sys::kmsg(&format!("the data partition was not built: {why}"))?;
                     app.data_failed(why);
                 }
                 decrypt::Ended::Opened(Err(why)) => {
+                    // The partition cannot be read, so nothing can be put in
+                    // it: the memory stands in, and a package brought in there
+                    // can still be flashed.
+                    if stage::make().unwrap_or(false) {
+                        let said = app.state.lang.pick([
+                            "Data cannot be opened: the phone's memory stands in for its storage, so a package can be put there; a restart empties it",
+                            "data не открывается: вместо внутренней памяти используется ОЗУ, туда можно положить пакет; перезагрузка её очистит",
+                        ]);
+                        app.notice(said, monotonic_ms());
+                    }
                     skyward_sys::kmsg(&format!("the data partition stays closed: {why}"))?;
                     // The update the system asked for cannot be read, and
                     // is done with.
@@ -2623,7 +2664,7 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                         if !withhold(&mut transfer, &mut app, now)? {
                             continue;
                         }
-                        installer = Some(Installer::start(detach(cfg.services.clone()), install_options(&app))?);
+                        installer = Some(Installer::start(detach(programs.to_vec()), install_options(&app))?);
                         sideloading = true;
                     }
                     Effect::InstallFile(place, path) => {
@@ -2631,14 +2672,14 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                         if !withhold(&mut transfer, &mut app, now)? {
                             continue;
                         }
-                        installer = Some(Installer::open(in_place(place, &path), detach(cfg.services.clone()), install_options(&app))?);
+                        installer = Some(Installer::open(in_place(place, &path), detach(programs.to_vec()), install_options(&app))?);
                     }
                     Effect::InstallPath(path) => {
                         ensure!(installer.is_none(), "an installer is running already");
                         if !withhold(&mut transfer, &mut app, now)? {
                             continue;
                         }
-                        installer = Some(Installer::open(PathBuf::from(path), detach(cfg.services.clone()), install_options(&app))?);
+                        installer = Some(Installer::open(PathBuf::from(path), detach(programs.to_vec()), install_options(&app))?);
                     }
                     Effect::Flash { partition, pick } => {
                         let slot = skyward_vab::current_slot()?.context("not an A/B phone")?;
@@ -2687,6 +2728,9 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                     // under way, and takes nothing more until it is done.
                     Effect::OpenData => {
                         ensure!(decryptor.is_none(), "the data partition is being opened already");
+                        if let Err(e) = stage::take() {
+                            skyward_sys::kmsg(&format!("the memory standing in for the storage stays: {e:#}"))?;
+                        }
                         decryptor = Some(Decryptor::start(decrypt::Job::Open)?);
                     }
                     // The page asks for the partition to be built where it
@@ -2694,6 +2738,9 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                     // what was built is opened as any other partition is.
                     Effect::RebuildData => {
                         ensure!(decryptor.is_none(), "the data partition is being worked on already");
+                        if let Err(e) = stage::take() {
+                            skyward_sys::kmsg(&format!("the memory standing in for the storage stays: {e:#}"))?;
+                        }
                         decryptor = Some(Decryptor::start(decrypt::Job::Rebuild)?);
                     }
                     Effect::Unlock { user, code } => {
@@ -2850,7 +2897,7 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                             device: cfg.device.codename.clone(),
                             efs: cfg.backup.efs.clone(),
                             skipped: backup::data_skipped(&cfg.backup.data_skipped),
-                            detach: detach(cfg.services.clone()),
+                            detach: detach(programs.to_vec()),
                         };
                         backuper = Some(backup::Worker::start(backup::Task::Restore(task))?);
                         app.backup_started(true, place, true);
