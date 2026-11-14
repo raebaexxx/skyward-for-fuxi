@@ -30,6 +30,12 @@ struct Methods {
 /// The first version of Android whose directory declares the two lookups.
 const LOOKUPS_DECLARED: u32 = 36;
 
+/// What the vendor's own build says which Android version it is, in the
+/// file its partition keeps it in, and the property the phone's init would
+/// have set from that file.
+const VENDOR_SDK: &str = "ro.vendor.build.version.sdk";
+const VENDOR_BUILD_PROP: &str = "/vendor/build.prop";
+
 /// How the directory of a recovery built as Android version `sdk` numbers
 /// its methods.
 fn methods_of(sdk: u32) -> Methods {
@@ -93,6 +99,37 @@ fn methods() -> Result<Methods> {
     Ok(methods_of(sdk.parse().with_context(|| format!("{SDK} is {sdk:?}"))?))
 }
 
+/// How the directory the vendor interface's own programs talk over numbers
+/// its methods. That directory is built with the vendor's Android version,
+/// which is often older than the recovery's, and an older directory numbers
+/// `checkService` at the position a newer one gives to another method
+/// altogether. The vendor's build says which version it is; the property is
+/// tried as well, for a phone whose build.prop is not mounted where this
+/// reads it.
+fn vendor_methods() -> Result<Methods> {
+    static KEPT: std::sync::OnceLock<Methods> = std::sync::OnceLock::new();
+    if let Some(kept) = KEPT.get() {
+        return Ok(*kept);
+    }
+    let sdk = std::fs::read_to_string(VENDOR_BUILD_PROP)
+        .ok()
+        .and_then(|text| sdk_in(&text))
+        .or_else(|| skyward_sys::prop(VENDOR_SDK).and_then(|value| value.trim().parse().ok()));
+    let methods = match sdk {
+        Some(sdk) => methods_of(sdk),
+        None => methods()?,
+    };
+    Ok(*KEPT.get_or_init(|| methods))
+}
+
+/// The vendor interface's version, as a build.prop file names it.
+fn sdk_in(text: &str) -> Option<u32> {
+    text.lines().find_map(|line| {
+        let (name, value) = line.trim().split_once('=')?;
+        (name.trim() == VENDOR_SDK).then(|| value.trim().parse().ok()).flatten()
+    })
+}
+
 /// Every dump priority a service can register at.
 const DUMP_PRIORITY_ALL: i32 = 0b1111;
 
@@ -130,24 +167,27 @@ pub fn version(service: &crate::driver::Handle, interface: &str) -> Result<i32> 
 /// registered it.
 #[cfg(target_os = "android")]
 pub fn find<'a>(binder: &'a crate::driver::Binder, name: &str) -> Result<Option<crate::driver::Handle<'a>>> {
-    with_mark(|mark| find_marked(binder, name, mark))
+    let methods = methods()?;
+    with_mark(|mark| find_marked(binder, name, mark, methods))
 }
 
 /// The service registered under `name` in the directory the vendor
 /// interface's own programs talk over. That directory reads only the mark
 /// its own build writes, so the call is opened with it rather than through
-/// the retry the other directories need.
+/// the retry the other directories need, and it numbers its methods as the
+/// vendor's own Android version does.
 #[cfg(target_os = "android")]
 pub fn find_vendor<'a>(binder: &'a crate::driver::Binder, name: &str) -> Result<Option<crate::driver::Handle<'a>>> {
-    find_marked(binder, name, crate::parcel::VENDOR_HEADER)
+    let methods = vendor_methods()?;
+    find_marked(binder, name, crate::parcel::VENDOR_HEADER, methods)
 }
 
 #[cfg(target_os = "android")]
-fn find_marked<'a>(binder: &'a crate::driver::Binder, name: &str, mark: i32) -> Result<Option<crate::driver::Handle<'a>>> {
+fn find_marked<'a>(binder: &'a crate::driver::Binder, name: &str, mark: i32, methods: Methods) -> Result<Option<crate::driver::Handle<'a>>> {
     let directory = binder.directory()?;
     let mut call = Parcel::call_marked(DIRECTORY, mark);
     call.string(name);
-    let reply = directory.transact(methods()?.check_service, &call).with_context(|| format!("look up {name}"))?;
+    let reply = directory.transact(methods.check_service, &call).with_context(|| format!("look up {name}"))?;
     let mut read = reply.read();
     status::ok(&mut read).with_context(|| format!("look up {name}"))?;
     match read.object().with_context(|| format!("read what the directory answered for {name}"))? {
@@ -246,5 +286,15 @@ mod tests {
         assert_eq!(methods_of(33).other(), methods_of(36));
         assert_eq!(methods_of(36).other(), methods_of(33));
         assert_ne!(methods_of(33).list_services, methods_of(33).other().list_services);
+    }
+
+    /// A port whose vendor is Android 13 keeps the older numbering there,
+    /// whatever version the recovery itself was built as.
+    #[test]
+    fn the_vendors_own_build_says_how_it_numbers_its_methods() {
+        let build = "# begin build properties\nro.vendor.build.version.sdk=33\nro.vendor.build.version.release=13\n";
+        assert_eq!(sdk_in(build), Some(33));
+        assert_eq!(methods_of(sdk_in(build).unwrap()), methods_of(33));
+        assert_eq!(sdk_in("ro.build.version.sdk=37\n"), None);
     }
 }

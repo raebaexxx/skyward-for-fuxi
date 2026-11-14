@@ -445,13 +445,15 @@ impl Station {
         let mut child = command.spawn().with_context(|| format!("start {program}"))?;
         let kept = crate::services::keep_stderr(&mut child);
         if let Err(e) = wait_for_directory(DIRECTORY_WAIT) {
+            let ended = child.try_wait().ok().flatten();
             let _ = child.kill();
             let _ = child.wait();
             let said = crate::services::said(kept);
-            if said.is_empty() {
-                return Err(e);
-            }
-            bail!("{e:#}{said}");
+            let status = match ended {
+                Some(status) => format!("; the directory ended: {status}"),
+                None => String::new(),
+            };
+            bail!("{e:#}{said}{status}");
         }
         Ok(Some(child))
     }
@@ -879,10 +881,13 @@ fn wait_for_directory(timeout: Duration) -> Result<()> {
     let binder = skyward_binder::driver::Binder::vendor().context("open the vendor driver")?;
     let until = Instant::now() + timeout;
     loop {
-        if skyward_binder::service::find_vendor(&binder, "manager").is_ok() {
-            return Ok(());
+        let why = match skyward_binder::service::find_vendor(&binder, "manager") {
+            Ok(_) => return Ok(()),
+            Err(e) => e,
+        };
+        if Instant::now() >= until {
+            bail!("the vendor service directory did not answer in {} seconds: {why:#}", timeout.as_secs());
         }
-        ensure!(Instant::now() < until, "the vendor service directory did not answer in {} seconds", timeout.as_secs());
         thread::sleep(Duration::from_millis(50));
     }
 }
