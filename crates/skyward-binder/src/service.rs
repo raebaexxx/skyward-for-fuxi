@@ -187,7 +187,13 @@ pub fn find_vendor<'a>(binder: &'a crate::driver::Binder, name: &str) -> Result<
         // vendor's directory against the recovery's own libbinder: it
         // reads the recovery's mark, and numbers its methods as the
         // recovery does.
-        Err(e) if wrong_kind(&e) => find_marked(binder, name, crate::parcel::header(), methods()?),
+        Err(e) if wrong_kind(&e) => {
+            static SAID: std::sync::Once = std::sync::Once::new();
+            SAID.call_once(|| {
+                let _ = skyward_sys::kmsg("the vendor directory reads the recovery's mark, and is asked that way");
+            });
+            find_marked(binder, name, crate::parcel::header(), methods()?)
+        }
         other => other,
     }
 }
