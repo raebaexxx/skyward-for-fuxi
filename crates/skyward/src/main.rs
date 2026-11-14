@@ -8,8 +8,6 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "android")]
 mod backup;
 #[cfg(target_os = "android")]
-mod browser;
-#[cfg(target_os = "android")]
 mod credential;
 #[cfg(target_os = "android")]
 mod decrypt;
@@ -23,6 +21,8 @@ mod input;
 mod merge;
 #[cfg(target_os = "android")]
 mod partwork;
+#[cfg(target_os = "android")]
+mod programs;
 #[cfg(target_os = "android")]
 mod pty;
 #[cfg(target_os = "android")]
@@ -508,7 +508,35 @@ fn bring_up(cfg: &DeviceConfig, slot: skyward_vab::Slot) -> Result<()> {
             skyward_sys::kmsg(&format!("logd not started: {e:#}"))?;
         }
     }
-    let services: Vec<_> = cfg.services.iter().filter(|s| s.runs_on(&props)).cloned().collect();
+    let mut services: Vec<_> = cfg.services.iter().filter(|s| s.runs_on(&props)).cloned().collect();
+    // The phone's own init scripts say which programs its key service is
+    // made of, and how each runs. What they say is taken over what the
+    // configuration says of the same kind: the phone's own system is the
+    // one that opens its data, and a system built differently keeps the
+    // programs elsewhere, or calls them something else.
+    let found = programs::key_chain();
+    if !found.is_empty() {
+        let named: Vec<&str> = found.iter().map(|s| s.path.as_str()).collect();
+        skyward_sys::kmsg(&format!("the key service is {}, as the phone's own init scripts say", named.join(", ")))?;
+        for mut program in found {
+            let kind = skyward_config::programs::kind_of(&program.path);
+            // A port may keep a program where the configuration does not,
+            // and the libraries the configuration names for its kind are
+            // the recovery's own and the installed system's, which the
+            // phone's init scripts do not know a recovery needs.
+            if let Some(named) = services.iter().find(|s| skyward_config::programs::kind_of(&s.path) == kind) {
+                for library in &named.libraries {
+                    if !program.libraries.contains(library) {
+                        program.libraries.push(library.clone());
+                    }
+                }
+            }
+            services.retain(|s| skyward_config::programs::kind_of(&s.path) != kind || s.path == program.path);
+            if !services.iter().any(|s| s.path == program.path) {
+                services.push(program);
+            }
+        }
+    }
     // The drivers ask for their firmware by name, and the kernel looks only
     // in folders of its own unless told to pass on what it does not find
     // there to ueventd, which looks in the recovery's firmware folders.

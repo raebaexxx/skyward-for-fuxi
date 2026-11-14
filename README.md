@@ -30,8 +30,6 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 - **Hands storage to a computer** over MTP, and speaks adb and fastbootd.
 - **WLAN**, joining the network kept at the next start by itself, for updates
   straight from the network.
-- **A browser** (Advanced → Browser): type an address, read the page's words
-  and links, and follow them; scripts are not run and pictures are not shown.
 - **Wireless transfer**: a browser on the same network opens
   `http://<phone>:8080/` to list, download and drop files onto the phone.
 - **Downloads from an address**: straight into `Download/`, resumed when
@@ -43,9 +41,11 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 
 ## Supported device
 
-| Device | Codename | Tested system version |
-| --- | --- | --- |
-| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-13 build) |
+| Device | Codename | System version | What was verified |
+| --- | --- | --- | --- |
+| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-13 build) | decryption, storage, WLAN, MTP, adb, updates, install, backup |
+| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | decryption and the owner's files; WLAN still to come |
+| Xiaomi 13 | `fuxi` | ColorOS 17 port (Android 17 system, Android 13 vendor) | not yet run |
 
 Decryption was verified on this phone with a PIN screen lock: the data
 partition is decrypted, the owner's credential-based files open, and internal
@@ -59,7 +59,8 @@ is built from.
 
 The secure stack also loads the VNDK libraries a port's older vendor names, and
 speaks to boot control over HIDL as well as AIDL. NexusHyper's Android 13 vendor
-needs both; this image has not been run on NexusHyper yet.
+needs both: decryption was verified there, and the WLAN is still being brought
+up on that vendor.
 
 ## What has been tested
 
@@ -69,7 +70,7 @@ update package from internal storage and keeping Skyward after it, installing a
 GApps zip with its own script, wireless transfer to a browser, the page for a
 passed link on port 8081, rebooting, and the About page.
 
-Still to be verified on the phone: the browser, taking a link from `link.txt`,
+Still to be verified on the phone: taking a link from `link.txt`,
 backup and restore, wipe, the file manager and terminal, USB drives and `adb
 sideload`, the updater, dual boot, mounting, repairing or formatting partitions,
 uploading through wireless transfer, downloading by link, and the file order. A
@@ -112,7 +113,6 @@ run from the installed system and come back with it.
 | Dual boot | A second system in the data partition, installed, switched to, removed |
 | Wireless | Internal storage handed to a browser on the same network: list, download, upload |
 | Download | An address taken into `Download/`, resumed when stopped; a code or `link.txt` brings one |
-| Browser | A page's words and links, read as markup; no scripts, no pictures |
 | Tools | A terminal, the kernel log, and the recovery's own log |
 | Settings | Theme, language, time zone, screen-off time, vibration, file transfer, the screen lock kept |
 | Reboot | System, recovery, fastboot, bootloader, EDL, and the slot to boot |

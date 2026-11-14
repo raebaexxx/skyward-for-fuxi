@@ -4,14 +4,13 @@ use skyward_info::{Battery, Boot, Charge, Cpu, DeviceInfo, PatchLevel, Storage};
 use skyward_install::{Failure, ImageKind, Outcome, Ramdisk, Reflash, Refusal, Stage};
 use skyward_net::download::{Failure as DownloadFailure, Progress};
 use skyward_net::github::{Build, Newest};
-use skyward_net::html::{Block, Page};
 use skyward_net::reach::Reach;
 use skyward_net::release::{Release, Unanswered};
 use skyward_net::supplicant::Security;
 use skyward_net::wlan::{Bands, Joined, Link, Network, Power, Stage as Joining, Traffic, Wlan};
 use skyward_systems::{Named, Other, Overview, Who};
 use skyward_ui::app::{
-    Action, Adding, App, Asked, BackupAt, BackupEnd, BackupEntry, BackupJob, BackupRefusal, Browse, BrowseStatus, Choice, Clip, Damage, Data,
+    Action, Adding, App, Asked, BackupAt, BackupEnd, BackupEntry, BackupJob, BackupRefusal, Choice, Clip, Damage, Data,
     DownloadEnd, DownloadJob, EraseStop, Field, FileKind, FileOp, FileRow, FileTask, FsAction, FsRow, Have, Held, Install, ItemEnd, JobEnd, Key, Keys,
     MountFailure, MountRow, Part, PartKind, PartStop, Pick, Place, Screen, SkywardEnd, SkywardJob, SkywardStage, Source, SystemChoice,
     SystemsWork, TermEnd, Touch, UsbDrive, UsbLink, SCREEN_OFF,
@@ -395,7 +394,7 @@ fn main() -> Result<()> {
     let adding = |app: &mut App, name: &str, security: Security, field: Field, choosing: bool| {
         app.state.adding = Some(Adding { name: name.into(), security, field, choosing });
     };
-    let pages: [PageShot; 182] = [
+    let pages: [PageShot; 181] = [
         ("11-install-light-locked", Screen::Install, false, &|app| {
             app.state.data = Data::Locked { user: 0, keys: Keys::Digits, checking: false };
         }),
@@ -1009,23 +1008,6 @@ fn main() -> Result<()> {
         }),
         ("206-fetch-portal-light", Screen::Fetch, false, &|app| {
             app.state.fetch_portal = Some("http://192.168.31.144:8081/".into());
-        }),
-        ("207-browser-light", Screen::Browser, false, &|app| {
-            app.state.browser = Browse {
-                url: "https://example.com/".into(),
-                at: "https://example.com/".into(),
-                page: Some(Page {
-                    title: "Example Domain".into(),
-                    blocks: vec![
-                        Block::Heading("Example Domain".into()),
-                        Block::Words("This domain is for use in illustrative examples in documents. You may use this domain in literature without prior coordination or asking for permission.".into()),
-                        Block::Link { words: "More information...".into(), to: "https://www.iana.org/help/example-domains".into() },
-                    ],
-                }),
-                status: BrowseStatus::Shown,
-                history: Vec::new(),
-                typing: false,
-            };
         }),
         ("208-settings-security-dark", Screen::Settings, true, &|app| {
             app.state.remember = true;

@@ -1,5 +1,4 @@
 use crate::backup;
-use crate::browser;
 use crate::credential;
 use crate::decrypt::{self, Decryptor};
 use crate::filework;
@@ -1013,6 +1012,40 @@ fn wlan_worker(w: &Option<wlan::Worker>) -> Result<&wlan::Worker> {
     w.as_ref().context("the phone's WLAN is not brought up")
 }
 
+/// Start taking `url` into `dir` under `name`: the download page takes a
+/// file this way, and is told how it goes.
+fn start_download(
+    app: &mut App,
+    fetcher: &mut Option<updates::Worker>,
+    servers: Servers,
+    url: String,
+    name: String,
+    dir: PathBuf,
+) -> Result<()> {
+    let made = fs::create_dir_all(&dir).with_context(|| format!("make {}", dir.display()));
+    let name = match &made {
+        Ok(()) => download::free_name(&dir, &name),
+        Err(_) => name,
+    };
+    let path = dir.join(&name);
+    let started = made.and_then(|()| {
+        skyward_sys::kmsg(&format!("downloading {url} to {}", path.display()))?;
+        updates::Worker::start(updates::Task::FetchUrl { url, name: name.clone(), path }, servers)
+    });
+    match started {
+        Ok(worker) => {
+            *fetcher = Some(worker);
+            app.fetch_started(&name);
+            Ok(())
+        }
+        Err(e) => {
+            let why = skyward_ui::fmt::download_failure(app.state.lang, &Failure::Other(format!("{e:#}")));
+            app.fetch_ended(FetchEnd::Failed(why));
+            Err(e)
+        }
+    }
+}
+
 /// The network whose password is kept, and the password joined with on this
 /// run: once the WLAN is up and the scan has found it, the network kept is
 /// joined by itself; once a network takes the password joined with, that
@@ -1146,6 +1179,17 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
     let fonts = Fonts::load(font, 0, mono)?;
     let mut surface = KmsSurface::open("/dev/dri/card0")?;
     let (w, h) = surface.size();
+    // A touch controller that follows the panel wakes as the panel goes from
+    // rest to running, and at no other time. The recovery service running
+    // again finds it as the earlier run left it, at rest where the panel
+    // rested then, so the panel is put to rest and woken with a dark frame,
+    // as every later wake wakes it, before the touchscreen is taken in and
+    // told its settings: a controller at rest answers none of them.
+    if skyward_sys::runs_again() {
+        surface.rest()?;
+        surface.present(&Canvas::new(w, h))?;
+        surface.settle()?;
+    }
     eprintln!("display {}", surface.describe());
     let mut inputs = Inputs::open(w, h, cfg.touch.writes.clone())?;
     let started = Instant::now();
@@ -1266,8 +1310,6 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
     // tried: a phone whose WLAN is not up yet is tried again while it shows.
     let mut portal: Option<portal::Portal> = None;
     let mut portal_tried: Option<Instant> = None;
-    // The page the browser asked for, being read on a thread of its own.
-    let mut page_reader: Option<browser::Fetcher> = None;
     if app.state.file_transfer {
         match Transfer::start(cfg, &info, app.state.time_zone) {
             Ok(t) => transfer = Some(t),
@@ -2112,12 +2154,6 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
                 app.wireless_at(wireless_url(cfg, server.port()));
             }
             app.wireless_served(server.served());
-        }
-        // The page the browser asked for, if it has come since the last look.
-        let read = page_reader.as_ref().and_then(|f| f.taken());
-        if let Some(page) = read {
-            page_reader = None;
-            app.browsed(page);
         }
         // A link too long for the recovery's keyboard can be typed on
         // another device, which opens a page the phone serves: it runs while
@@ -3023,37 +3059,14 @@ pub fn run(cfg: &DeviceConfig, font: &Path, mono: &Path, request: bcb::Request, 
                     Effect::StartFetch { url, name } => {
                         ensure!(fetcher.is_none(), "a download is under way");
                         let dir = Path::new(skyward_crypto::data::SDCARD).join("Download");
-                        let made = fs::create_dir_all(&dir).with_context(|| format!("make {}", dir.display()));
-                        let name = match &made {
-                            Ok(()) => download::free_name(&dir, &name),
-                            Err(_) => name,
-                        };
-                        let path = dir.join(&name);
-                        let started = made.and_then(|()| {
-                            skyward_sys::kmsg(&format!("downloading {url} to {}", path.display()))?;
-                            updates::Worker::start(updates::Task::FetchUrl { url, name: name.clone(), path }, servers.clone())
-                        });
-                        match started {
-                            Ok(worker) => {
-                                fetcher = Some(worker);
-                                app.fetch_started(&name);
-                            }
-                            Err(e) => {
-                                skyward_sys::kmsg(&format!("the file could not be downloaded: {e:#}"))?;
-                                let why = skyward_ui::fmt::download_failure(app.state.lang, &Failure::Other(format!("{e:#}")));
-                                app.fetch_ended(FetchEnd::Failed(why));
-                            }
+                        if let Err(e) = start_download(&mut app, &mut fetcher, servers.clone(), url, name, dir) {
+                            skyward_sys::kmsg(&format!("the file could not be downloaded: {e:#}"))?;
                         }
                     }
                     Effect::StopFetch => {
                         if let Some(worker) = &fetcher {
                             worker.stop();
                         }
-                    }
-                    // A page the browser asked for: read on its own thread,
-                    // and the page told when it has come.
-                    Effect::Browse(url) => {
-                        page_reader = Some(browser::Fetcher::start(url, servers.clone(), app.state.lang)?);
                     }
                     // A link a computer put in a file, taken from there: the
                     // first line that is not blank.
