@@ -44,7 +44,7 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 | Device | Codename | System version | What was verified |
 | --- | --- | --- | --- |
 | Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | verified on 1.9.3: decryption, storage, WLAN auto-connect, MTP, adb |
-| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9.3; the 1.7 build decrypted and opened the owner's files |
+| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9.4; the 1.7 build decrypted and opened the owner's files |
 | Xiaomi 13 | `fuxi` | ColorOS 17 port (Android 17 system, Android 13 vendor) | not yet run |
 
 The 1.9 line merges upstream 0.3.0, which reads the phone's programs and keys
@@ -52,9 +52,13 @@ from its own partitions. 1.9.2 adds upstream's install fix, where a partition
 in use comes off the tree instead of ending the install. 1.9.3 corrects the
 format of data: the recovery empties the partition and throws away the key it
 was opened with, and the system that starts next makes a new key, as it does
-on its own first start. While data cannot be opened, a piece of the phone's
-memory stands in for internal storage, so a package can still be brought in
-over the network or from a computer and flashed; a restart empties it.
+on its own first start. 1.9.4 makes that format finish: the filesystem is
+made over what is there, without discarding every block of the partition
+first. While data cannot be opened, a piece of the phone's memory stands in
+for internal storage, so a package can still be brought in over the network
+or from a computer and flashed; a restart empties it. The memory stands in
+only where the partition truly holds nothing, and takes three quarters of
+what is free.
 
 Decryption was verified on the phone with a PIN screen lock: the data
 partition is decrypted, the owner's credential-based files open, and internal
@@ -83,7 +87,7 @@ transfer to a browser, the page for a passed link on port 8081, rebooting, and
 the About page.
 
 Still to be verified on the phone: formatting an emptied data partition on
-1.9.3, taking a link from `link.txt`,
+1.9.4, taking a link from `link.txt`,
 backup and restore, wipe, the file manager and terminal, USB drives and `adb
 sideload`, the updater, dual boot, mounting, repairing or formatting partitions,
 uploading through wireless transfer, downloading by link, and the file order. A
@@ -99,8 +103,8 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.9.3.zip
-fastboot flash recovery skyward-fuxi-v1.9.3.img
+unzip skyward-fuxi-v1.9.4.zip
+fastboot flash recovery skyward-fuxi-v1.9.4.img
 fastboot reboot recovery
 ```
 
@@ -189,7 +193,7 @@ the computer:
 ```sh
 # SKYWARD_VERSION makes the build name the release it is for; a local build
 # without it uses the workspace version, 0.3.0.
-SKYWARD_VERSION=1.9.3 \
+SKYWARD_VERSION=1.9.4 \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release \

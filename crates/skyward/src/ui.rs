@@ -1339,13 +1339,13 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
     // the phone's storage shows instead, so that one can still be brought in
     // over the network or from a computer and flashed; it is taken away again
     // before the partition is opened.
-    if !skyward_crypto::data::key_kept() {
+    if skyward_crypto::data::empty() {
         match stage::make() {
             Ok(true) => {
-                skyward_sys::kmsg("the data partition keeps no key, so the phone's memory stands in for its storage until a system makes one")?;
+                skyward_sys::kmsg("the data partition holds nothing, so the phone's memory stands in for its storage until a system makes it")?;
                 let said = app.state.lang.pick([
-                    "No key is kept for data yet: the phone's memory stands in for its storage, so a package can be put there; a restart empties it",
-                    "Для data ещё нет ключа: вместо внутренней памяти используется ОЗУ, туда можно положить пакет; перезагрузка её очистит",
+                    "Data holds nothing yet: the phone's memory stands in for its storage, so a package can be put there; a restart empties it",
+                    "В data пока ничего нет: вместо внутренней памяти используется ОЗУ, туда можно положить пакет; перезагрузка её очистит",
                 ]);
                 app.notice(said, monotonic_ms());
             }
@@ -2733,9 +2733,9 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                         }
                         decryptor = Some(Decryptor::start(decrypt::Job::Open)?);
                     }
-                    // The page asks for the partition to be built where it
-                    // holds nothing: the key is made, the filesystem too, and
-                    // what was built is opened as any other partition is.
+                    // The page asks for the partition to be given a new
+                    // filesystem: the old key goes with it, and the system
+                    // makes the new one when it next starts.
                     Effect::RebuildData => {
                         ensure!(decryptor.is_none(), "the data partition is being worked on already");
                         if let Err(e) = stage::take() {

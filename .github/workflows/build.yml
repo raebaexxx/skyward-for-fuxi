@@ -140,18 +140,21 @@ jobs:
           cat > notes.md <<NOTES
           # Skyward for fuxi · Xiaomi 13
 
-          Version 1.9.3 corrects Format data from 1.9.2. Asking the key
-          service for a new key could take the phone down, so the recovery now
-          only empties the partition and throws the old key away; the system
-          makes a new key at its next start. Update before formatting data if
-          you are on 1.9.2.
+          Version 1.9.4 makes Format data finish. 1.9.3 had corrected the key
+          handling, but the filesystem tool refused a partition that already
+          held one, and discarding every block first could stall the storage.
+          The recovery now makes the filesystem over what is there and throws
+          the old key away; the system makes a new key at its next start. Do
+          not use Format data in 1.9.2: asking the key service for a key could
+          take the phone down.
 
           While data cannot be opened, a piece of the phone's memory stands in
           for internal storage, so a package can still be brought in over the
-          network or from a computer and flashed. A restart empties it.
+          network or from a computer and flashed. A restart empties it; it
+          stands in only where the partition truly holds nothing.
 
           Android 17 data decryption with the screen lock, verified on crDroid
-          17.0 with 1.9.2. The phone's own partitions name its programs and
+          17.0 up to 1.9.3. The phone's own partitions name its programs and
           keys, and fuxi keeps its WLAN vendor directory, VNDK fallback and
           English/Russian pages.
 
