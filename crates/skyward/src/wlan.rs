@@ -38,6 +38,12 @@ const HOME: &str = "/skyward/run/supplicant";
 /// make its socket.
 const WIFI: u32 = 1010;
 
+/// The vendor's own C libraries the supplicant's TLS uses. A port's
+/// supplicant is built against the copy in its vendor's bundle; the
+/// recovery's own copy is newer and may have dropped a symbol it asks for,
+/// as Android 17's `libcrypto` no longer carries `sk_dup`.
+const VENDOR_TLS: [&str; 2] = ["libcrypto.so", "libssl.so"];
+
 /// The vendor interface's own service directory, and the driver its
 /// programs ask for. Android starts the directory beside the one the rest of
 /// the system uses; a recovery does not, so the WLAN brings it on with the
@@ -985,6 +991,55 @@ fn mac_text(mac: [u8; 6]) -> String {
     text
 }
 
+/// Put the vendor's own `libcrypto` and `libssl` where the supplicant looks
+/// before the recovery's newer copies, and give the folder. A port's
+/// supplicant is built against the library in its vendor's bundle; the
+/// recovery's Android 17 `libcrypto` no longer carries `sk_dup`, which the
+/// port's Android 13 supplicant asks for, and a loader that binds every
+/// symbol at start then ends it before its first line runs.
+fn vendor_tls(home: &Path, libraries: Option<&Path>) -> Result<Option<PathBuf>> {
+    let Some(from) = libraries else {
+        return Ok(None);
+    };
+    let dir = home.join("lib");
+    let mut found = false;
+    for name in VENDOR_TLS {
+        let source = from.join(name);
+        if !source.is_file() {
+            continue;
+        }
+        fs::create_dir_all(&dir).with_context(|| format!("make {}", dir.display()))?;
+        let target = dir.join(name);
+        match fs::remove_file(&target) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| format!("take away {}", target.display())),
+        }
+        std::os::unix::fs::symlink(&source, &target).with_context(|| format!("point {} at {}", target.display(), source.display()))?;
+        found = true;
+    }
+    if !found {
+        return Ok(None);
+    }
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).with_context(|| format!("open {} to the supplicant", dir.display()))?;
+    Ok(Some(dir))
+}
+
+/// The library path the supplicant runs with: the vendor's own TLS first,
+/// then the configuration's folders, and the vendor bundle last for what
+/// only it carries.
+fn supplicant_library_path(libraries: &[String], tls: Option<&Path>, bundle: Option<&Path>) -> Vec<String> {
+    let mut path = Vec::new();
+    if let Some(dir) = tls {
+        path.push(dir.to_string_lossy().into_owned());
+    }
+    path.extend(libraries.iter().cloned());
+    if let Some(dir) = bundle {
+        path.push(dir.to_string_lossy().into_owned());
+    }
+    path
+}
+
 /// Start the supplicant on the interface, and wait for its control socket.
 fn start_supplicant(cfg: &Config, libraries: Option<&Path>) -> Result<Child> {
     let home = Path::new(HOME);
@@ -1002,10 +1057,11 @@ fn start_supplicant(cfg: &Config, libraries: Option<&Path>) -> Result<Child> {
     if socket.exists() {
         fs::remove_file(&socket).with_context(|| format!("take away {}", socket.display()))?;
     }
-    let mut path: Vec<String> = cfg.libraries.clone();
-    if let Some(dir) = libraries {
-        path.push(dir.to_string_lossy().into_owned());
+    let tls = vendor_tls(home, libraries)?;
+    if let Some(dir) = &tls {
+        skyward_sys::kmsg(&format!("the supplicant asks the vendor's own libcrypto and libssl first, from {}", dir.display()))?;
     }
+    let path = supplicant_library_path(&cfg.libraries, tls.as_deref(), libraries);
     let mut command = Process::new(&cfg.supplicant);
     command
         .args(["-i", &cfg.interface, "-D", "nl80211", "-c"])
@@ -1079,5 +1135,44 @@ mod tests {
             optional: true,
         };
         assert_eq!(file_name(&file), Some(MAC_FILE));
+    }
+
+    #[test]
+    fn the_supplicant_asks_the_vendors_own_tls_first() {
+        let libraries = vec!["/vendor/lib64".to_string(), "/system/lib64".to_string()];
+        let tls = Path::new("/skyward/run/supplicant/lib");
+        let bundle = Path::new("/apex/com.android.vndk.v33/lib64");
+        assert_eq!(
+            supplicant_library_path(&libraries, Some(tls), Some(bundle)),
+            ["/skyward/run/supplicant/lib", "/vendor/lib64", "/system/lib64", "/apex/com.android.vndk.v33/lib64"],
+            "the vendor's TLS is found before the recovery's newer copy"
+        );
+        assert_eq!(
+            supplicant_library_path(&libraries, None, Some(bundle)),
+            ["/vendor/lib64", "/system/lib64", "/apex/com.android.vndk.v33/lib64"],
+            "a phone without a bundle keeps the configuration's order"
+        );
+    }
+
+    #[test]
+    fn the_vendors_tls_is_linked_beside_the_supplicant() {
+        let at = tempfile::tempdir().unwrap();
+        let bundle = at.path().join("bundle");
+        fs::create_dir_all(&bundle).unwrap();
+        for name in VENDOR_TLS {
+            fs::write(bundle.join(name), b"").unwrap();
+        }
+        let home = at.path().join("home");
+        let dir = vendor_tls(&home, Some(&bundle)).unwrap().expect("the vendor's TLS is linked");
+        assert_eq!(dir, home.join("lib"));
+        for name in VENDOR_TLS {
+            let target = dir.join(name);
+            assert!(target.is_symlink(), "{name} is linked, not copied");
+            assert_eq!(fs::read_link(&target).unwrap(), bundle.join(name));
+        }
+        assert!(vendor_tls(&home, None).unwrap().is_none(), "a phone without a bundle has none");
+        let empty = at.path().join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        assert!(vendor_tls(&home, Some(&empty)).unwrap().is_none(), "a bundle with neither library leaves the path alone");
     }
 }
