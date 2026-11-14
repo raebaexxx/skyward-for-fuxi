@@ -43,7 +43,7 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 
 | Device | Codename | System version | What was verified |
 | --- | --- | --- | --- |
-| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | verified on 1.9.4: decryption, storage, WLAN auto-connect, MTP, adb |
+| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | verified on 1.9.8: decryption, storage, WLAN auto-connect, MTP, adb |
 | Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9.8; the 1.7 build decrypted and opened the owner's files |
 | Xiaomi 13 | `fuxi` | ColorOS 17 port (Android 17 system, Android 13 vendor) | not yet run |
 
@@ -84,7 +84,7 @@ up on that vendor.
 
 ## What has been tested
 
-Verified on the phone with crDroid 17.0: on 1.9.4, PIN decryption, internal
+Verified on the phone with crDroid 17.0: on 1.9.8, PIN decryption, internal
 storage, WLAN and the kept network joined by itself, MTP and adb; on 1.7, also
 installing a full system update package from internal storage and keeping
 Skyward after it, installing a GApps zip with its own script, wireless
