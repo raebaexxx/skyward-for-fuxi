@@ -1545,10 +1545,10 @@ fn whole_page(app: &mut App, f: &Fonts, info: &DeviceInfo) -> Canvas {
 }
 
 /// Xiaomi 13 as `skyward info` read it on 2026-11-12 (the
-/// config supplies the SoC name, panel and screen size).
+/// config supplies the model, SoC name, panel and screen size).
 fn fuxi(cfg: &DeviceConfig) -> DeviceInfo {
     DeviceInfo {
-        model: "Xiaomi 13".into(),
+        model: cfg.device.model.clone(),
         codename: cfg.device.codename.clone(),
         soc: cfg.device.soc.clone(),
         cpu: Cpu { cores: 8, max_khz: Some(3_190_000) },
@@ -1562,9 +1562,9 @@ fn fuxi(cfg: &DeviceConfig) -> DeviceInfo {
         kernel: "6.12.69-android16-6-g43b5ab7e247d-abogki561813157-4k".into(),
         storage: Storage { total: 510_027_597_824, free: Some(260_000_000_000) },
         battery: Some(Battery {
-            level: 95,
+            level: 92,
             charge: Charge::Charging,
-            temp: Some(350),
+            temp: Some(300),
             health: Some("Good".into()),
             cycles: Some(300),
             design: Some(4_500_000),

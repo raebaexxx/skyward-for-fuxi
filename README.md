@@ -44,7 +44,7 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 | Device | Codename | System version | What was verified |
 | --- | --- | --- | --- |
 | Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | verified on 1.9.4: decryption, storage, WLAN auto-connect, MTP, adb |
-| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9.7; the 1.7 build decrypted and opened the owner's files |
+| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9.8; the 1.7 build decrypted and opened the owner's files |
 | Xiaomi 13 | `fuxi` | ColorOS 17 port (Android 17 system, Android 13 vendor) | not yet run |
 
 The 1.9 line merges upstream 0.3.0, which reads the phone's programs and keys
@@ -61,11 +61,9 @@ only where the partition truly holds nothing, and takes three quarters of
 what is free. 1.9.5 lets it be looked at over an open data partition with
 `stage --force`, and any process can take it away again. 1.9.6 makes a
 command given to the recovery's own path run as a command rather than start
-a second recovery over the running one, and adds `keygen`, which asks the
-key service for the partition's key the way the phone's storage manager does
-and writes nothing. 1.9.7 corrects that request: algorithm is a single enum,
-where 1.9.6 sent it as a repeated one, and the key service refused it with
-`-4`.
+a second recovery over the running one. 1.9.8 puts the key-making experiment
+away: a secure world may not survive being asked for a key from the
+recovery, and the partition is the system's to build.
 
 Decryption was verified on the phone with a PIN screen lock: the data
 partition is decrypted, the owner's credential-based files open, and internal
@@ -94,7 +92,7 @@ transfer to a browser, the page for a passed link on port 8081, rebooting, and
 the About page.
 
 Still to be verified on the phone: formatting an emptied data partition on
-1.9.7, taking a link from `link.txt`,
+1.9.8, taking a link from `link.txt`,
 backup and restore, wipe, the file manager and terminal, USB drives and `adb
 sideload`, the updater, dual boot, mounting, repairing or formatting partitions,
 uploading through wireless transfer, downloading by link, and the file order. A
@@ -110,8 +108,8 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.9.7.zip
-fastboot flash recovery skyward-fuxi-v1.9.7.img
+unzip skyward-fuxi-v1.9.8.zip
+fastboot flash recovery skyward-fuxi-v1.9.8.img
 fastboot reboot recovery
 ```
 
@@ -200,7 +198,7 @@ the computer:
 ```sh
 # SKYWARD_VERSION makes the build name the release it is for; a local build
 # without it uses the workspace version, 0.3.0.
-SKYWARD_VERSION=1.9.7 \
+SKYWARD_VERSION=1.9.8 \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release \

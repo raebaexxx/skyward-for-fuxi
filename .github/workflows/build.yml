@@ -155,14 +155,11 @@ jobs:
           it be looked at over an open data partition with `stage --force`,
           and any process can take it away again.
 
-          Version 1.9.6 makes a command given to the recovery's own path run
-          as a command rather than start a second recovery over the running
-          one. `keygen` asks the key service for the partition's key the way
-          the phone's storage manager does, and writes nothing.
-
-          Version 1.9.7 corrects that request. Algorithm is a single enum,
-          where 1.9.6 sent it as a repeated one, and the key service refused
-          it with -4.
+          Version 1.9.8 puts the key-making experiment away. A phone's secure
+          world may not survive being asked for a key from the recovery, so
+          the partition is the system's to build: Format data empties it and
+          throws the old key away, and the system makes the new one. Commands
+          given to the recovery's own path still run as commands.
 
           Android 17 data decryption with the screen lock, verified on crDroid
           17.0 up to 1.9.4. The phone's own partitions name its programs and
