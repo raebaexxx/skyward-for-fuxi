@@ -794,15 +794,34 @@ fn not_there(e: &anyhow::Error) -> bool {
 }
 
 /// Bring the interface up, waiting out the moment between the driver making
-/// its folder and the kernel taking the interface itself.
+/// its folder and the kernel taking the interface itself. A driver that is
+/// still calibrating or loading its firmware answers `EBUSY` until it is
+/// ready, which on a port may be several seconds after its folder appears.
 fn interface_up(cfg: &Config) -> Result<()> {
     let until = Instant::now() + INTERFACE_WAIT;
+    let mut said = false;
     loop {
         match iface::set_up(&cfg.interface, true) {
-            Err(e) if not_there(&e) && Instant::now() < until => thread::sleep(Duration::from_millis(100)),
+            Err(e) if not_ready(&e) && Instant::now() < until => {
+                if !said {
+                    said = true;
+                    skyward_sys::kmsg(&format!("{} is not ready to come up yet: {e:#}", cfg.interface))?;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
             answer => return answer,
         }
     }
+}
+
+/// Whether the failure is the driver not being ready to take the interface
+/// up yet: its folder is there, but its firmware or calibration is not done.
+fn not_ready(e: &anyhow::Error) -> bool {
+    e.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|e| matches!(e.raw_os_error(), Some(libc::ENODEV | libc::EBUSY)))
+    })
 }
 
 /// Wait for the interface to report itself up, as a driver that made it a
