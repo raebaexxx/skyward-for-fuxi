@@ -116,7 +116,10 @@ fn vendor_methods() -> Result<Methods> {
         .and_then(|text| sdk_in(&text))
         .or_else(|| skyward_sys::prop(VENDOR_SDK).and_then(|value| value.trim().parse().ok()));
     let methods = match sdk {
-        Some(sdk) => methods_of(sdk),
+        Some(sdk) => {
+            let _ = skyward_sys::kmsg(&format!("the vendor service directory is asked as Android {sdk} numbers its methods"));
+            methods_of(sdk)
+        }
         None => methods()?,
     };
     Ok(*KEPT.get_or_init(|| methods))
