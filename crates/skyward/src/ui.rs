@@ -1340,7 +1340,7 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
     // over the network or from a computer and flashed; it is taken away again
     // before the partition is opened.
     if skyward_crypto::data::empty() {
-        match stage::make() {
+        match stage::make(false) {
             Ok(true) => {
                 skyward_sys::kmsg("the data partition holds nothing, so the phone's memory stands in for its storage until a system makes it")?;
                 let said = app.state.lang.pick([
@@ -2415,7 +2415,7 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                         "data получил новую файловую систему; система создаст ключ при следующем запуске",
                     ]);
                     app.notice(said, monotonic_ms());
-                    match stage::make() {
+                    match stage::make(false) {
                         Ok(true) => skyward_sys::kmsg("the phone's memory stands in for its storage until a system makes the key")?,
                         Ok(false) => {}
                         Err(e) => skyward_sys::kmsg(&format!("the phone's memory could not stand in for its storage: {e:#}"))?,
@@ -2429,7 +2429,7 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                     // The partition cannot be read, so nothing can be put in
                     // it: the memory stands in, and a package brought in there
                     // can still be flashed.
-                    if stage::make().unwrap_or(false) {
+                    if stage::make(false).unwrap_or(false) {
                         let said = app.state.lang.pick([
                             "Data cannot be opened: the phone's memory stands in for its storage, so a package can be put there; a restart empties it",
                             "data не открывается: вместо внутренней памяти используется ОЗУ, туда можно положить пакет; перезагрузка её очистит",

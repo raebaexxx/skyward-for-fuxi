@@ -151,10 +151,12 @@ jobs:
           While data cannot be opened, a piece of the phone's memory stands in
           for internal storage, so a package can still be brought in over the
           network or from a computer and flashed. A restart empties it; it
-          stands in only where the partition truly holds nothing.
+          stands in only where the partition truly holds nothing. 1.9.5 lets
+          it be looked at over an open data partition with `stage --force`,
+          and any process can take it away again.
 
           Android 17 data decryption with the screen lock, verified on crDroid
-          17.0 up to 1.9.3. The phone's own partitions name its programs and
+          17.0 up to 1.9.4. The phone's own partitions name its programs and
           keys, and fuxi keeps its WLAN vendor directory, VNDK fallback and
           English/Russian pages.
 
