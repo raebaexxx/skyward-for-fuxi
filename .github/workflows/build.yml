@@ -161,8 +161,15 @@ jobs:
           throws the old key away, and the system makes the new one. Commands
           given to the recovery's own path still run as commands.
 
+          Version 1.9.9 reads a backup's extended headers by the length each
+          records, so the binary values F2FS and SELinux keep no longer look
+          like damage, and it checks the whole data archive before writing
+          any of it. The restore page can write a data backup back after a
+          factory reset; a switch warns that apps which kept keys in the old
+          partition may ask to sign in again.
+
           Android 17 data decryption with the screen lock, verified on crDroid
-          17.0 up to 1.9.4. The phone's own partitions name its programs and
+          17.0 on 1.9.8. The phone's own partitions name its programs and
           keys, and fuxi keeps its WLAN vendor directory, VNDK fallback and
           English/Russian pages.
 

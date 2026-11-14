@@ -2885,7 +2885,7 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                         backuper = Some(backup::Worker::start(backup::Task::Backup(task))?);
                         app.backup_started(false, place, verify);
                     }
-                    Effect::Restore { place, name, parts } => {
+                    Effect::Restore { place, name, parts, anyway } => {
                         ensure!(backuper.is_none(), "a backup or restore is under way already");
                         if installer.is_some() {
                             app.report(app.state.lang.pick(INSTALL_UNFINISHED), now);
@@ -2898,6 +2898,7 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                             efs: cfg.backup.efs.clone(),
                             skipped: backup::data_skipped(&cfg.backup.data_skipped),
                             detach: detach(programs.to_vec()),
+                            allow_reset: anyway,
                         };
                         backuper = Some(backup::Worker::start(backup::Task::Restore(task))?);
                         app.backup_started(true, place, true);

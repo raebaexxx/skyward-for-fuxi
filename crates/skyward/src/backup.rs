@@ -117,6 +117,11 @@ pub struct RestoreTask {
     /// What has to happen before the slot's partitions in super are written
     /// over, as before an update.
     pub detach: skyward_install::Detach,
+    /// Write the data partition's files even though its key changed since
+    /// the backup, as a factory reset makes it: the files are written into
+    /// the new partition, and apps that kept keys in the old one may ask to
+    /// sign in again.
+    pub allow_reset: bool,
 }
 
 pub enum Task {
@@ -438,7 +443,7 @@ fn backup(t: BackupTask, tell: &dyn Fn(Event), cancel: &AtomicBool) -> Result<(P
         if t.verify {
             for (k, item) in items.iter().enumerate() {
                 let mut telling = Telling::new(tell, k, item.stored.size, true);
-                check(&folder, &item.stored, cancel, &mut telling).with_context(|| format!("check {}", item.name))?;
+                check(&folder, item, cancel, &mut telling).with_context(|| format!("check {}", item.name))?;
             }
         }
         let data_key = if data { Some(data_key()?) } else { None };
@@ -466,11 +471,18 @@ fn backup(t: BackupTask, tell: &dyn Fn(Event), cancel: &AtomicBool) -> Result<(P
     Ok((folder, left_out))
 }
 
-/// Read a part back from its files whole and see that it is what was
-/// stored.
-fn check(folder: &Path, stored: &Stored, cancel: &AtomicBool, telling: &mut Telling) -> Result<()> {
+/// Read a part back whole, checking its digest and, for the data partition,
+/// the archive's metadata before anything is written.
+fn check(folder: &Path, item: &Item, cancel: &AtomicBool, telling: &mut Telling) -> Result<()> {
+    let stored = &item.stored;
     let mut reader = Reader::open(folder, stored);
-    copy(&mut reader, &mut io::sink(), stored.size, cancel, telling)?;
+    if item.part == Part::Data {
+        let read = Cell::new(0);
+        let from = Counted { inner: &mut reader, read: &read };
+        archive::validate(from, cancel, &mut |_| telling.done(read.get())).context("check the data archive's metadata")?;
+    } else {
+        copy(&mut reader, &mut io::sink(), stored.size, cancel, telling)?;
+    }
     // One byte more is enough to know there is more; reading it all would let
     // a crafted backup fill memory.
     let mut extra = [0u8; 1];
@@ -541,7 +553,7 @@ fn restore(t: RestoreTask, tell: &dyn Fn(Event), cancel: &AtomicBool) -> Result<
                 }
             }
             Part::Data => {
-                if manifest.data_key.as_deref() != Some(data_key()?.as_str()) {
+                if !t.allow_reset && manifest.data_key.as_deref() != Some(data_key()?.as_str()) {
                     return Err(Refusal::DataReset.into());
                 }
             }
@@ -551,7 +563,7 @@ fn restore(t: RestoreTask, tell: &dyn Fn(Event), cancel: &AtomicBool) -> Result<
     // A damaged backup is not written anywhere.
     for (k, item) in items.iter().enumerate() {
         let mut telling = Telling::new(tell, k, item.stored.size, true);
-        check(&t.folder, &item.stored, cancel, &mut telling).with_context(|| format!("check {}", item.name))?;
+        check(&t.folder, item, cancel, &mut telling).with_context(|| format!("check {}", item.name))?;
     }
     for item in items.iter().filter(|i| matches!(i.part, Part::Boot | Part::Efs)) {
         let device = target(item, slot);

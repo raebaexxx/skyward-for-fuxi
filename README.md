@@ -43,8 +43,8 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 
 | Device | Codename | System version | What was verified |
 | --- | --- | --- | --- |
-| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | verified on 1.9.8: decryption, storage, WLAN auto-connect, MTP, adb |
-| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9.8; the 1.7 build decrypted and opened the owner's files |
+| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | verified on 1.9.8: decryption, storage, WLAN auto-connect, MTP, adb; 1.9.9 adds the backup reader fix and restore after a factory reset, to be verified |
+| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9.9; the 1.7 build decrypted and opened the owner's files |
 | Xiaomi 13 | `fuxi` | ColorOS 17 port (Android 17 system, Android 13 vendor) | not yet run |
 
 The 1.9 line merges upstream 0.3.0, which reads the phone's programs and keys
@@ -63,7 +63,12 @@ what is free. 1.9.5 lets it be looked at over an open data partition with
 command given to the recovery's own path run as a command rather than start
 a second recovery over the running one. 1.9.8 puts the key-making experiment
 away: a secure world may not survive being asked for a key from the
-recovery, and the partition is the system's to build.
+recovery, and the partition is the system's to build. 1.9.9 reads a backup's
+extended headers by the length each records, so the binary values F2FS and
+SELinux keep are no longer mistaken for damage, and it checks the whole data
+archive before writing any of it. The restore page can write a data backup
+back after a factory reset, with a switch that warns apps which kept keys in
+the old partition may ask to sign in again.
 
 Decryption was verified on the phone with a PIN screen lock: the data
 partition is decrypted, the owner's credential-based files open, and internal
@@ -92,9 +97,10 @@ transfer to a browser, the page for a passed link on port 8081, rebooting, and
 the About page.
 
 Still to be verified on the phone: formatting an emptied data partition on
-1.9.8, taking a link from `link.txt`,
-backup and restore, wipe, the file manager and terminal, USB drives and `adb
-sideload`, the updater, dual boot, mounting, repairing or formatting partitions,
+1.9.9, taking a link from `link.txt`, restoring a data backup on the same key
+and after a factory reset on 1.9.9, wipe, the file manager and terminal, USB
+drives and `adb sideload`, the updater, dual boot, mounting, repairing or
+formatting partitions,
 uploading through wireless transfer, downloading by link, and the file order. A
 download needs the server to say how long the file is; a page that gives no
 length is refused.
@@ -108,8 +114,8 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.9.8.zip
-fastboot flash recovery skyward-fuxi-v1.9.8.img
+unzip skyward-fuxi-v1.9.9.zip
+fastboot flash recovery skyward-fuxi-v1.9.9.img
 fastboot reboot recovery
 ```
 
@@ -198,7 +204,7 @@ the computer:
 ```sh
 # SKYWARD_VERSION makes the build name the release it is for; a local build
 # without it uses the workspace version, 0.3.0.
-SKYWARD_VERSION=1.9.8 \
+SKYWARD_VERSION=1.9.9 \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release \

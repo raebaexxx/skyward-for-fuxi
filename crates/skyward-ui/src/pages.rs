@@ -2000,10 +2000,19 @@ pub fn restore_backup(cx: &Ctx) -> Frame {
                 let mut y = widgets::footnote(&mut c, t, f, list.bottom, note);
                 if chosen[2] {
                     let note = l.pick([
-                        "The data partition gets its apps, accounts and settings back, and internal storage, the screen lock and fingerprints stay as they are. After a factory reset, an earlier backup of the data partition can't be restored.",
-                        "Раздел data получает обратно приложения, аккаунты и настройки, а внутренняя память, блокировка экрана и отпечатки остаются как есть. После сброса к заводским настройкам более раннюю копию раздела data восстановить нельзя.",
+                        "The data partition gets its apps, accounts and settings back, and internal storage, the screen lock and fingerprints stay as they are. After a factory reset the data partition's key changes; turn on the switch below to write the apps' files back anyway.",
+                        "Раздел data получает обратно приложения, аккаунты и настройки, а внутренняя память, блокировка экрана и отпечатки остаются как есть. После сброса к заводским настройкам ключ раздела data меняется; включите переключатель ниже, чтобы всё равно записать файлы приложений.",
                     ]);
                     y = widgets::footnote(&mut c, t, f, y, note);
+                    let row = Row::new(l.pick(["Restore after a factory reset", "Восстановить после сброса"]))
+                        .subtitle(l.pick([
+                            "Apps that kept keys in the old partition may ask you to sign in again.",
+                            "Приложения, хранившие ключи в старом разделе, могут попросить войти заново.",
+                        ]))
+                        .trail(Trail::Switch(s.restore_anyway));
+                    let options = widgets::list(&mut c, t, f, y + t.m.dp(8.0), &[row]);
+                    out.push(Hit { rect: options.rows[0], action: Action::Toggle(Switch::RestoreAnyway) });
+                    y = options.bottom;
                 }
                 // The boot partitions' vbmeta checks the system's: one of
                 // another version without the other may not start.

@@ -564,6 +564,8 @@ pub enum Switch {
     Compress,
     /// Read a backup back once it is written.
     Verify,
+    /// Restore a data backup made before the partition's key changed.
+    RestoreAnyway,
     /// Run a zip's install script only if the zip was signed with one of
     /// the phone's update keys.
     Signature,
@@ -1812,6 +1814,9 @@ pub struct State {
     /// The backup the restore page shows, as it was found, and which of its
     /// parts to restore.
     pub restore: Option<(BackupEntry, [bool; 4])>,
+    /// Restore the data partition's files even though its key changed since
+    /// the backup, as a factory reset makes it.
+    pub restore_anyway: bool,
     /// Backing up or restoring under way, or how it last ended.
     pub backup_job: Option<BackupJob>,
     /// Which logs to export: the recovery's, the kernel's.
@@ -1979,6 +1984,7 @@ impl Default for State {
             verify: true,
             backups: Vec::new(),
             restore: None,
+            restore_anyway: false,
             backup_job: None,
             logs: [true, true],
             logs_to: 0,
@@ -2295,8 +2301,9 @@ pub enum Effect {
     /// and [`App::backup_ended`].
     Backup { parts: [bool; 4], place: Place, compress: bool, verify: bool },
     /// Restore the parts ticked of the backup in the folder `name` of
-    /// `place`, telling how it goes as a backup does.
-    Restore { place: Place, name: String, parts: [bool; 4] },
+    /// `place`, telling how it goes as a backup does. `anyway` writes the
+    /// data partition's files even though its key changed since the backup.
+    Restore { place: Place, name: String, parts: [bool; 4], anyway: bool },
     /// Look for backups in the places that can be read, telling what is
     /// found with [`App::set_backups`].
     FindBackups { storage: bool, usb: bool },
@@ -5598,6 +5605,7 @@ impl App {
                     Switch::FileTransfer => &mut self.state.file_transfer,
                     Switch::Compress => &mut self.state.compress,
                     Switch::Verify => &mut self.state.verify,
+                    Switch::RestoreAnyway => &mut self.state.restore_anyway,
                     Switch::Signature => &mut self.state.check_signature,
                     Switch::KeepRecovery => &mut self.state.keep_recovery,
                     Switch::ShowPassword => &mut self.state.show_password,
@@ -5822,6 +5830,7 @@ impl App {
                 let entry = self.state.backups[i].clone();
                 let parts = entry.held.as_ref().map_or([false; 4], |h| h.parts);
                 self.state.restore = Some((entry, parts));
+                self.state.restore_anyway = false;
                 self.state.asking_delete = false;
                 self.open(Screen::RestoreBackup);
             }
@@ -6961,7 +6970,7 @@ impl App {
             }
             Confirm::Restore => {
                 let (entry, parts) = self.state.restore.as_ref().expect("the restore page shows a backup");
-                let restore = Effect::Restore { place: entry.place, name: entry.name.clone(), parts: *parts };
+                let restore = Effect::Restore { place: entry.place, name: entry.name.clone(), parts: *parts, anyway: self.state.restore_anyway };
                 if !parts.contains(&true) {
                     self.say(l.pick(["Choose what to restore", "Выберите, что восстановить"]), now);
                 } else if parts[2] && self.state.data != Data::Open {
@@ -10046,7 +10055,8 @@ mod tests {
         assert_eq!(swipe(&mut app, &f, &i, Confirm::Restore), vec![Effect::Restore {
             place: Place::Storage,
             name: name.clone(),
-            parts: [true, false, false, true]
+            parts: [true, false, false, true],
+            anyway: false
         }]);
         for k in [0, 3] {
             tap(&mut app, &f, &i, Action::RestorePart(k));
@@ -10067,6 +10077,26 @@ mod tests {
         app.data_waiting(None);
         let fx = swipe(&mut app, &f, &i, Confirm::Restore);
         assert!(matches!(&fx[..], [Effect::Restore { parts: [false, false, true, false], .. }]), "{fx:?}");
+    }
+
+    #[test]
+    fn a_data_backup_can_be_restored_after_a_factory_reset_when_asked() {
+        let (f, i) = (fonts(), info());
+        let mut app = opened(Screen::Restore, &f, &i);
+        app.set_backups(vec![found(Place::Storage, 1_792_348_260, [false, false, true, false])]);
+        tap(&mut app, &f, &i, Action::OpenBackup(0));
+        app.data_waiting(None);
+        assert!(
+            app.frame(&f, &i).hits.iter().any(|h| h.action == Action::Toggle(Switch::RestoreAnyway)),
+            "a data backup offers the switch"
+        );
+        tap(&mut app, &f, &i, Action::Toggle(Switch::RestoreAnyway));
+        assert!(app.state.restore_anyway);
+        let name = fmt::stamp(1_792_348_260, 0);
+        assert_eq!(
+            swipe(&mut app, &f, &i, Confirm::Restore),
+            vec![Effect::Restore { place: Place::Storage, name, parts: [false, false, true, false], anyway: true }]
+        );
     }
 
     #[test]
