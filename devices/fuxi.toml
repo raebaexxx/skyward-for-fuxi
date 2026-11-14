@@ -96,73 +96,11 @@ click = 0
 resonance = "/sys/class/qcom-haptics/lra_frequency_hz"
 strength = { lightest = 0.5, strongest = 1.0 }
 
-# The secure stack that opens the data partition on a crDroid 17 build of
-# this phone: qseecomd, the key service, the older services' directory, the
-# credential service and the boot control. The vendor is the Android 16
-# Qualcomm one, so the key service is AIDL and the credential service is
-# HIDL 1.0, as on the 13 Pro.
-
-# The secure world reaches back into Android through the listeners this
-# daemon registers; without them the key service cannot use any key.
-[[service]]
-path = "/vendor/bin/qseecomd"
-libraries = ["/system/lib64", "/vendor/lib64"]
-ready_property = "vendor.sys.listeners.registered"
-user = "root"
-groups = ["root", "drmrpc"]
-
-# The key service, the only thing that can use keys the phone wrapped in
-# hardware. Decryption of the data partition needs it.
-[[service]]
-path = "/vendor/bin/hw/android.hardware.security.keymint-service-qti"
-libraries = ["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
-ready_service = "android.hardware.security.keymint.IKeyMintDevice/default"
-user = "system"
-groups = ["system", "drmrpc"]
-
-# The directory the older HIDL services register with. A recovery carries
-# none of it, so this is the installed system's own program against the
-# installed system's libraries; it reports ready by the property those
-# services wait on.
-[[service]]
-path = "/system_ext/bin/hwservicemanager"
-libraries = ["/mnt/system/system/lib64/bootstrap", "/mnt/system/system/lib64", "/system_ext/lib64"]
-ready_property = "hwservicemanager.ready"
-user = "system"
-groups = ["system", "readproc"]
-
-# The credential service: the secure world has it check a screen lock, and
-# it is the only thing that can hand out the note the key service wants
-# before using a key a screen lock guards.
-[[service]]
-path = "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti"
-libraries = ["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
-ready_hardware_service = "android.hardware.gatekeeper@1.0::IGatekeeper/default"
-user = "system"
-groups = ["system"]
-
-# The boot control, which says which slot the bootloader starts next and
-# switches it. It comes last: the phone is usable without it. crDroid's
-# vendor carries the newer kind; a port whose vendor is the older Qualcomm
-# one carries the HIDL kind instead, and only one of the two is there.
-[[service]]
-path = "/vendor/bin/hw/android.hardware.boot-service.qti"
-libraries = ["/system/lib64", "/vendor/lib64"]
-ready_service = "android.hardware.boot.IBootControl/default"
-user = "root"
-groups = ["root"]
-optional = true
-
-# The older kind of the boot control, as the Android 13 vendor partition of
-# a port carries it: the HIDL 1.2 service, which the phone's own update
-# engine reads too.
-[[service]]
-path = "/vendor/bin/hw/android.hardware.boot@1.2-service"
-libraries = ["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"]
-ready_hardware_service = "android.hardware.boot@1.2::IBootControl/default"
-user = "root"
-groups = ["root"]
-optional = true
+# The secure stack that opens the data partition is read from the phone's
+# own partitions: its init scripts name qseecomd, the key service, the
+# older services' directory, the credential service and the boot control,
+# and Skyward starts each as the phone would. Nothing here names them by
+# hand, so a system that moves or renames them after an update is followed.
 
 # The secure world's applets, among them the keymaster and gatekeeper ones,
 # are on the modem partition, which the phone's own boot mounts at

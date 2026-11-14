@@ -3,7 +3,6 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
 
-pub mod programs;
 
 /// Recovery ramdisk files Skyward reads, adds or changes, as archive paths
 /// (they sit under `/` once the kernel unpacks the ramdisk).
@@ -280,10 +279,19 @@ pub struct Owners {
     pub paths: Vec<String>,
 }
 
-/// A name as each language the pages speak writes it: English and Russian.
+/// A name as each language the pages speak writes it: Chinese in
+/// simplified and in traditional characters, and English.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct Names {
+    #[serde(default)]
+    pub hans: String,
+    #[serde(default)]
+    pub hant: String,
+    #[serde(default)]
     pub en: String,
+    /// The name in Russian, as this fork's pages speak it; every other
+    /// language is this fork's English.
+    #[serde(default)]
     pub ru: String,
 }
 
@@ -388,12 +396,6 @@ pub struct Service {
     /// once it has ended, and it has to end well.
     #[serde(default)]
     pub oneshot: bool,
-    /// The program may be absent from this phone, and the phone still comes
-    /// up without it: some builds of a phone's vendor partition carry a
-    /// newer or an older kind of a service, and the configuration names
-    /// both.
-    #[serde(default)]
-    pub optional: bool,
     /// A property the program sets once it is ready for the rest. Programs
     /// are started in the order they are written, and one that says it has
     /// something to wait for holds up the ones after it.
@@ -407,11 +409,6 @@ pub struct Service {
     /// directory takes only when they are described to it as well.
     #[serde(default)]
     pub registers: Vec<String>,
-    /// The file that describes what the program registers, where the phone
-    /// keeps that file apart from its other descriptions, as one its init
-    /// puts in place of another on some builds of the hardware.
-    #[serde(default)]
-    pub description: Option<String>,
     /// A service the program registers with the other directory, the one
     /// the phone's hardware services of the older kind use. It is written
     /// as the interface and then which of them it is.
@@ -593,7 +590,7 @@ impl DeviceConfig {
         for s in cfg.services.iter().filter(|s| s.oneshot) {
             let waits = s.ready_property.is_some() || s.ready_service.is_some() || s.ready_hardware_service.is_some();
             ensure!(
-                !waits && s.registers.is_empty() && s.description.is_none(),
+                !waits && s.registers.is_empty(),
                 "[[service]] {}: a program run once is ready when it ends, and registers nothing",
                 s.path
             );
@@ -656,9 +653,6 @@ impl DeviceConfig {
         }
         if let Some(wlan) = &cfg.wlan {
             ensure!(wlan.probe.starts_with("http://"), "[wlan] probe: {} is not a plain HTTP address", wlan.probe);
-            if let Some(program) = &wlan.vendor_directory {
-                ensure!(Path::new(program).is_absolute(), "[wlan] vendor_directory: {program} is not an absolute path");
-            }
             for file in &wlan.firmware {
                 let name = Path::new(&file.name);
                 let plain = name.components().all(|c| matches!(c, std::path::Component::Normal(_)));
@@ -701,7 +695,7 @@ mod tests {
     #[test]
     fn the_vendor_patch_level_speaks_for_the_named_build() {
         let cfg = DeviceConfig::parse(
-            "[device]\ncodename = \"x\"\nbuild_release = \"17\"\nbuild_patch = \"2099-12-31\"\n",
+            "[device]\ncodename = \"fuxi\"\nbuild_release = \"17\"\nbuild_patch = \"2099-12-31\"\n",
         )
         .unwrap();
         assert_eq!(cfg.spoken_for("ro.build.version.release", "16"), ("17", true));
@@ -712,30 +706,23 @@ mod tests {
             "the vendor patch level is the named build's, not the installed vendor partition's"
         );
         assert_eq!(
-            cfg.spoken_for("ro.product.device", "x"),
-            ("x", false),
+            cfg.spoken_for("ro.product.device", "fuxi"),
+            ("fuxi", false),
             "a property the configuration says nothing of is the installed system's"
         );
     }
 
     /// The 13's own configuration: the stock build the recovery is made on,
-    /// and the secure stack that opens its data partition, are all there.
+    /// the WLAN it brings up, and the secure stack read from the phone's
+    /// own partitions rather than named here.
     #[test]
     fn parses_fuxi() {
         let cfg = DeviceConfig::parse(include_str!("../../../devices/fuxi.toml")).unwrap();
         assert_eq!(cfg.device.codename, "fuxi");
         assert_eq!(cfg.stock.as_ref().map(|s| s.version.as_str()), Some("OS3.0.309.0.WMCCNXM"));
         let paths: Vec<&str> = cfg.services.iter().map(|s| s.path.as_str()).collect();
-        for needed in [
-            "/vendor/bin/qseecomd",
-            "/vendor/bin/hw/android.hardware.security.keymint-service-qti",
-            "/vendor/bin/hw/android.hardware.gatekeeper@1.0-service-qti",
-            "/vendor/bin/hw/android.hardware.boot-service.qti",
-            "/vendor/bin/hw/android.hardware.boot@1.2-service",
-        ] {
-            assert!(paths.contains(&needed), "{needed} is part of the secure stack");
-        }
-        assert_eq!(cfg.wlan.unwrap().vendor_directory.as_deref(), Some("/vendor/bin/vndservicemanager"));
+        assert_eq!(paths, ["/vendor/bin/sh"], "the key programs are read from the phone's own partitions");
+        assert_eq!(cfg.wlan.as_ref().and_then(|w| w.vendor_directory.as_deref()), Some("/vendor/bin/vndservicemanager"));
     }
 
     #[test]
@@ -809,7 +796,6 @@ mod tests {
         assert!(DeviceConfig::parse(&format!("{base}ready_property = \"vendor.a\"\n")).is_err());
         assert!(DeviceConfig::parse(&format!("{base}ready_service = \"a.IA/default\"\n")).is_err());
         assert!(DeviceConfig::parse(&format!("{base}registers = [\"a.IB/default\"]\n")).is_err());
-        assert!(DeviceConfig::parse(&format!("{base}description = \"/vendor/etc/a.xml\"\n")).is_err());
         let kept = DeviceConfig::parse("[device]\ncodename = \"x\"\n[[service]]\npath = \"/vendor/bin/a\"\n").unwrap();
         assert!(!kept.services[0].oneshot && kept.services[0].args.is_empty(), "a program is kept running unless it says otherwise");
     }
@@ -879,19 +865,6 @@ mod tests {
         assert!(DeviceConfig::parse(&format!("{base}probe = \"http://connect.rom.miui.com/generate_204\"\n")).is_ok());
         assert!(DeviceConfig::parse(&format!("{base}probe = \"https://connect.rom.miui.com/generate_204\"\n")).is_err(), "a login cannot answer in its stead");
         assert!(DeviceConfig::parse(base).is_err(), "a WLAN says how it is probed");
-    }
-
-    #[test]
-    fn a_wlan_says_which_vendor_service_directory_its_supplicant_registers_with() {
-        let base = "[device]\ncodename = \"x\"\n[wlan]\nmodules = []\ninterface = \"wlan0\"\nsupplicant = \"/s\"\nservice = \"a/b\"\nprobe = \"http://p/\"\n";
-        assert!(DeviceConfig::parse(base).unwrap().wlan.unwrap().vendor_directory.is_none(), "a phone may have none");
-        assert!(DeviceConfig::parse(&format!("{base}vendor_directory = \"/vendor/bin/vndservicemanager\"\n")).is_ok());
-        assert!(
-            DeviceConfig::parse(&format!("{base}vendor_directory = \"vndservicemanager\"\n")).is_err(),
-            "it is run from an absolute path"
-        );
-        let cfg = DeviceConfig::parse(include_str!("../../../devices/fuxi.toml")).unwrap();
-        assert_eq!(cfg.wlan.unwrap().vendor_directory.as_deref(), Some("/vendor/bin/vndservicemanager"));
     }
 
     #[test]

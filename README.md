@@ -43,7 +43,7 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 
 | Device | Codename | System version | What was verified |
 | --- | --- | --- | --- |
-| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-13 build) | decryption, storage, WLAN, MTP, adb, updates, install, backup |
+| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | decryption, storage, WLAN, MTP, adb, updates, install, backup |
 | Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | decryption and the owner's files; WLAN still to come |
 | Xiaomi 13 | `fuxi` | ColorOS 17 port (Android 17 system, Android 13 vendor) | not yet run |
 
@@ -86,8 +86,8 @@ it, and flash the image inside to the recovery partition with the phone in
 fastboot mode:
 
 ```sh
-unzip skyward-fuxi-v1.7.zip
-fastboot flash recovery skyward-fuxi-v1.7.img
+unzip skyward-fuxi-v1.9.zip
+fastboot flash recovery skyward-fuxi-v1.9.img
 fastboot reboot recovery
 ```
 
@@ -175,8 +175,8 @@ the computer:
 
 ```sh
 # SKYWARD_VERSION makes the build name the release it is for; a local build
-# without it uses the workspace version, 1.7.0.
-SKYWARD_VERSION=1.7 \
+# without it uses the workspace version, 0.3.0.
+SKYWARD_VERSION=1.9 \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release \

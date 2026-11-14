@@ -89,8 +89,8 @@ USB-накопители и `adb sideload`, средство обновлени�
 переведя телефон в режим fastboot:
 
 ```sh
-unzip skyward-fuxi-v1.7.zip
-fastboot flash recovery skyward-fuxi-v1.7.img
+unzip skyward-fuxi-v1.9.zip
+fastboot flash recovery skyward-fuxi-v1.9.img
 fastboot reboot recovery
 ```
 
@@ -181,8 +181,8 @@ Skyward собирается стабильным Rust, указанным в `r
 
 ```sh
 # SKYWARD_VERSION makes the build name the release it is for; a local build
-# without it uses the workspace version, 1.7.0.
-SKYWARD_VERSION=1.7 \
+# without it uses the workspace version, 0.3.0.
+SKYWARD_VERSION=1.9 \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release -p skyward
 RUSTFLAGS="-C target-feature=+crt-static" \
   cargo ndk -t arm64-v8a --platform 30 build --locked --release \

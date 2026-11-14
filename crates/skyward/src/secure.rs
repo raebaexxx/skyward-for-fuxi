@@ -2,7 +2,7 @@
 //! recovery: the libraries their partitions were built against, and a
 //! service directory that knows the phone describes them.
 
-use anyhow::{Context, Result};
+use anyhow::{ensure, Context, Result};
 use std::collections::BTreeSet;
 use std::ffi::{CStr, CString};
 use std::fs;
@@ -31,10 +31,11 @@ const BUNDLE_LIBS: &str = "lib64";
 /// made for.
 const VENDOR_INTERFACE: &str = "ro.vndk.version";
 
-/// Where the phone describes the services its own partitions carry, and
-/// where a recovery looks for such descriptions.
-const DESCRIPTIONS: [&str; 2] = ["/vendor/etc/vintf/manifest", "/odm/etc/vintf/manifest"];
+/// Where a recovery looks for the descriptions of the services the running
+/// system carries, and the one the recovery writes there of the phone's
+/// own.
 const RECOVERY_DESCRIPTIONS: &str = "/system/etc/vintf/manifest";
+const PHONE_DESCRIPTION: &str = "phone.xml";
 
 /// The name init knows the service directory by, and the program it runs.
 const DIRECTORY_SERVICE: &str = "servicemanager";
@@ -86,14 +87,14 @@ const INSTALLED_SYSTEM_EXT_HWSERVICE: &str = "/system_ext/etc/selinux/system_ext
 const INSTALLED_PRODUCT_HWSERVICE: &str = "/product/etc/selinux/product_hwservice_contexts";
 const INSTALLED_ODM_HWSERVICE: &str = "/odm/etc/selinux/odm_hwservice_contexts";
 
-/// Every hardware service's interface chain ends here, and the directory
-/// checks the whole chain before it lets one register.
-const BASE_INTERFACE: &str = "android.hidl.base::IBase";
-
 /// The driver the phone's hardware services talk over, as they expect to
 /// find it and as a recovery has it.
 const HARDWARE_DRIVER: &str = "/dev/hwbinder";
 const HARDWARE_DRIVER_NODE: &str = "/dev/binderfs/hwbinder";
+
+/// Every hardware service's interface chain ends here, and the directory
+/// checks the whole chain before it lets one register.
+const BASE_INTERFACE: &str = "android.hidl.base::IBase";
 
 /// The directory for those services is itself one of them, and it turns
 /// itself off when the running system does not describe it.
@@ -174,20 +175,8 @@ pub fn prepare_hardware_directory(wanted: &[String]) -> Result<()> {
     fs::copy(from, &into).with_context(|| format!("copy {} to {}", from.display(), into.display()))?;
     declare_service_labels(wanted)?;
     fs::write(RECOVERY_MANIFEST, describe_hardware(wanted)?).with_context(|| format!("write {RECOVERY_MANIFEST}"))?;
-    // The recovery service starts with umask 077, so the file is left one
-    // only root may read. The programs that register with the directory run
-    // as users, and each reads this before registering to learn whether the
-    // phone allows it; finding it unreadable, they refuse to register and
-    // the credential service never comes up. Leave the file open and the
-    // folder above it walkable.
-    let manifest = Path::new(RECOVERY_MANIFEST);
-    if let Some(dir) = manifest.parent() {
-        fs::set_permissions(dir, fs::Permissions::from_mode(0o755))
-            .with_context(|| format!("open {} to the services", dir.display()))?;
-    }
-    fs::set_permissions(manifest, fs::Permissions::from_mode(0o644))
-        .with_context(|| format!("open {RECOVERY_MANIFEST} to the services"))?;
-    open_descriptions(Path::new(RECOVERY_DESCRIPTIONS))?;
+    fs::set_permissions(RECOVERY_MANIFEST, std::os::unix::fs::PermissionsExt::from_mode(0o644))
+        .with_context(|| format!("let every user read {RECOVERY_MANIFEST}"))?;
     // The directory turns itself off when it cannot find its own
     // description, and a run of it before this was written may have left
     // that behind.
@@ -205,49 +194,138 @@ fn describe_hardware(wanted: &[String]) -> Result<String> {
         let (package, rest) = name
             .split_once('@')
             .with_context(|| format!("{name} does not read as a hardware service's name"))?;
-        // A description holds the version and the interface as elements of
-        // their own; the one-line name alone is not read as either, and a
-        // service it names is then refused as undescribed.
-        let (version, rest) = rest
-            .split_once("::")
-            .with_context(|| format!("{name} does not name a version"))?;
-        let (interface, instance) = rest
-            .split_once('/')
-            .with_context(|| format!("{name} does not name an instance"))?;
         out.push_str("    <hal format=\"hidl\">\n");
         out.push_str(&format!("        <name>{package}</name>\n"));
         out.push_str("        <transport>hwbinder</transport>\n");
-        out.push_str(&format!("        <version>{version}</version>\n"));
-        out.push_str("        <interface>\n");
-        out.push_str(&format!("            <name>{interface}</name>\n"));
-        out.push_str(&format!("            <instance>{instance}</instance>\n"));
-        out.push_str("        </interface>\n");
-        out.push_str(&format!("        <fqname>@{version}::{interface}/{instance}</fqname>\n"));
+        out.push_str(&format!("        <fqname>@{rest}</fqname>\n"));
         out.push_str("    </hal>\n");
     }
     out.push_str("</manifest>\n");
     Ok(out)
 }
 
-/// Let the services read the descriptions. They run as users, and the
-/// recovery service writes under umask 077, so every description it wrote
-/// is one only root may read. That is not a local failure: a single
-/// unreadable fragment fails the whole framework manifest, and the services
-/// are then told the phone describes nothing at all.
-fn open_descriptions(dir: &Path) -> Result<()> {
-    if !dir.is_dir() {
-        return Ok(());
+/// Open the bundle of libraries the phone's own partitions were built
+/// against and give the directory they are in. A phone whose partitions
+/// need no bundle has none to open.
+pub fn libraries() -> Result<Option<PathBuf>> {
+    let Some(version) = vendor_interface() else {
+        skyward_sys::kmsg("the phone names no vendor interface version, so no bundle of its own libraries is opened")?;
+        return Ok(None);
+    };
+    Ok(bundle(&format!("com.android.vndk.v{version}"))?.map(|at| at.join(BUNDLE_LIBS)))
+}
+
+/// Which build of the vendor interface the installed vendor partition is
+/// made for: the property the recovery runs with, or else the one the
+/// vendor's own property files name, which a recovery's init does not read.
+/// The vendor partition of an older build is where the programs of the
+/// secure stack find the libraries they were linked against.
+fn vendor_interface() -> Option<String> {
+    if let Some(version) = skyward_sys::prop(VENDOR_INTERFACE) {
+        return Some(version);
     }
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o755))
-        .with_context(|| format!("open {} to the services", dir.display()))?;
-    for entry in fs::read_dir(dir).with_context(|| format!("read {}", dir.display()))? {
-        let entry = entry?;
-        if entry.file_type()?.is_file() {
-            fs::set_permissions(entry.path(), fs::Permissions::from_mode(0o644))
-                .with_context(|| format!("open {} to the services", entry.path().display()))?;
+    ["/vendor/build.prop", "/vendor/default.prop"].iter().find_map(|path| {
+        let text = fs::read_to_string(path).ok()?;
+        version_in(&text)
+    })
+}
+
+/// The vendor interface version a property file names, if it names one.
+fn version_in(text: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let (name, value) = line.split_once('=')?;
+        (name.trim() == VENDOR_INTERFACE).then(|| value.trim().to_string()).filter(|v| !v.is_empty())
+    })
+}
+
+/// Open the bundle of this name where it lies, and give where it is. A
+/// bundle the phone does not carry gives nothing; one already open is left
+/// as it is.
+fn bundle(name: &str) -> Result<Option<PathBuf>> {
+    let at = Path::new(BUNDLE_MOUNT).join(name);
+    if skyward_block::mount::is_mount_point(&at)? {
+        return Ok(Some(at));
+    }
+    let Some(file) = BUNDLE_DIRS.iter().map(|d| Path::new(d).join(format!("{name}.apex"))).find(|p| p.is_file()) else {
+        return Ok(None);
+    };
+    let (offset, length) = image(&file)?;
+    fs::create_dir_all(&at).with_context(|| format!("make {}", at.display()))?;
+    // Some kernels read a loop device pointed at a file on EROFS as an I/O
+    // error. A copy in the recovery's own memory is read back whole, so the
+    // bundle is tried there when the file itself cannot be read.
+    match open_bundle(&file, offset, length, &at) {
+        Ok(()) => Ok(Some(at)),
+        Err(direct) => {
+            skyward_sys::kmsg(&format!("{name} is not read where it lies: {direct:#}"))?;
+            // SELinux refuses the kernel the descriptors a recovery opens
+            // for a loop device; with the check relaxed the same file reads
+            // whole.
+            if let Err(e) = permit_loop_devices() {
+                skyward_sys::kmsg(&format!("SELinux was not made permissive: {e:#}"))?;
+            } else if open_bundle(&file, offset, length, &at).is_ok() {
+                return Ok(Some(at));
+            }
+            skyward_sys::kmsg(&format!("{name} is copied into the recovery's own memory"))?;
+            let copy = Path::new("/tmp").join(format!("{name}.img"));
+            copy_bundle(&file, offset, length, &copy).with_context(|| format!("copy {}", file.display()))?;
+            open_bundle(&copy, 0, length, &at)
+                .with_context(|| format!("open {} from its copy at {}", file.display(), copy.display()))
+                .map(|()| Some(at))
+                .map_err(|e| e.context(format!("reading it where it lies failed too: {direct:#}")))
         }
     }
+}
+
+/// Point a loop device at `length` bytes of `file` from `offset`, and mount
+/// what it holds at `at`.
+fn open_bundle(file: &Path, offset: u64, length: u64, at: &Path) -> Result<()> {
+    let device = skyward_block::loopdev::attach(file, offset, length)?;
+    skyward_block::mount::mount_ro(&device, at).map(|_| ())
+}
+
+/// Write `length` bytes of `file` from `offset` into `copy`.
+fn copy_bundle(file: &Path, offset: u64, length: u64, copy: &Path) -> Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut from = fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
+    from.seek(SeekFrom::Start(offset)).with_context(|| format!("seek {}", file.display()))?;
+    let mut to = fs::File::create(copy).with_context(|| format!("create {}", copy.display()))?;
+    std::io::copy(&mut from.take(length), &mut to).with_context(|| format!("copy {} into {}", file.display(), copy.display()))?;
+    to.sync_all().with_context(|| format!("sync {}", copy.display()))?;
     Ok(())
+}
+
+/// Let the kernel read the files its loop devices are pointed at. SELinux
+/// refuses the kernel the file descriptors a recovery opens (`fd use`), and
+/// the loop device then reads every sector as an I/O error. The recovery
+/// already runs its own programs permissively and is a root shell on adb;
+/// the phone's own service directories are the only thing that keeps the
+/// stricter checks useful here.
+pub fn permit_loop_devices() -> Result<()> {
+    let path = Path::new("/sys/fs/selinux/enforce");
+    let enforcing = match fs::read_to_string(path) {
+        Ok(text) => text.trim() == "1",
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+    };
+    if !enforcing {
+        return Ok(());
+    }
+    fs::write(path, b"0").with_context(|| format!("make SELinux permissive at {}", path.display()))?;
+    skyward_sys::kmsg("SELinux is permissive so the kernel can read the loop devices")?;
+    Ok(())
+}
+
+/// Where the filesystem lies inside a bundle.
+fn image(file: &Path) -> Result<(u64, u64)> {
+    let f = fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
+    let mut bundle = zip::ZipArchive::new(f).with_context(|| format!("read what is in {}", file.display()))?;
+    let entry = bundle.by_name(BUNDLE_IMAGE).with_context(|| format!("{} holds no {BUNDLE_IMAGE}", file.display()))?;
+    if entry.compression() != zip::CompressionMethod::Stored {
+        anyhow::bail!("{} keeps its {BUNDLE_IMAGE} packed, which cannot be opened where it lies", file.display());
+    }
+    let start = entry.data_start().with_context(|| format!("{BUNDLE_IMAGE} in {} says where it is not", file.display()))?;
+    Ok((start, entry.size()))
 }
 
 /// Give the phone's service directories the labels its services register
@@ -367,27 +445,6 @@ fn prepare_service_contexts() -> Result<()> {
     Ok(())
 }
 
-/// Let the kernel read the files its loop devices are pointed at. SELinux
-/// refuses the kernel the file descriptors a recovery opens (`fd use`), and
-/// the loop device then reads every sector as an I/O error. The recovery
-/// already runs its own programs permissively and is a root shell on adb;
-/// the phone's own service directories are the only thing that keeps the
-/// stricter checks useful here.
-pub fn permit_loop_devices() -> Result<()> {
-    let path = Path::new("/sys/fs/selinux/enforce");
-    let enforcing = match fs::read_to_string(path) {
-        Ok(text) => text.trim() == "1",
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
-    };
-    if !enforcing {
-        return Ok(());
-    }
-    fs::write(path, b"0").with_context(|| format!("make SELinux permissive at {}", path.display()))?;
-    skyward_sys::kmsg("SELinux is permissive so the kernel can read the loop devices")?;
-    Ok(())
-}
-
 /// The service context lines of `sources`, in order, with each service
 /// named once: the first file that names it keeps it. A file that is not
 /// there adds nothing.
@@ -502,172 +559,67 @@ fn copy_label(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Open the bundle of libraries the phone's own partitions were built
-/// against and give the directory they are in. A phone whose partitions
-/// need no bundle has none to open.
-pub fn libraries() -> Result<Option<PathBuf>> {
-    let Some(version) = vendor_interface() else {
-        skyward_sys::kmsg("the phone names no vendor interface version, so no bundle of its own libraries is opened")?;
-        return Ok(None);
-    };
-    Ok(bundle(&format!("com.android.vndk.v{version}"))?.map(|at| at.join(BUNDLE_LIBS)))
-}
-
-/// Which build of the vendor interface the installed vendor partition is
-/// made for: the property the recovery runs with, or else the one the
-/// vendor's own property files name, which a recovery's init does not read.
-/// The vendor partition of an older build is where the programs of the
-/// secure stack find the libraries they were linked against.
-fn vendor_interface() -> Option<String> {
-    if let Some(version) = skyward_sys::prop(VENDOR_INTERFACE) {
-        return Some(version);
-    }
-    ["/vendor/build.prop", "/vendor/default.prop"].iter().find_map(|path| {
-        let text = fs::read_to_string(path).ok()?;
-        version_in(&text)
-    })
-}
-
-/// The vendor interface version a property file names, if it names one.
-fn version_in(text: &str) -> Option<String> {
-    text.lines().find_map(|line| {
-        let (name, value) = line.split_once('=')?;
-        (name.trim() == VENDOR_INTERFACE).then(|| value.trim().to_string()).filter(|v| !v.is_empty())
-    })
-}
-
-/// Open the bundle of this name where it lies, and give where it is. A
-/// bundle the phone does not carry gives nothing; one already open is left
-/// as it is.
-fn bundle(name: &str) -> Result<Option<PathBuf>> {
-    let at = Path::new(BUNDLE_MOUNT).join(name);
-    if skyward_block::mount::is_mount_point(&at)? {
-        return Ok(Some(at));
-    }
-    let Some(file) = BUNDLE_DIRS.iter().map(|d| Path::new(d).join(format!("{name}.apex"))).find(|p| p.is_file()) else {
-        return Ok(None);
-    };
-    let (offset, length) = image(&file)?;
-    fs::create_dir_all(&at).with_context(|| format!("make {}", at.display()))?;
-    // Some kernels read a loop device pointed at a file on EROFS as an I/O
-    // error. A copy in the recovery's own memory is read back whole, so the
-    // bundle is tried there when the file itself cannot be read.
-    match open_bundle(&file, offset, length, &at) {
-        Ok(()) => Ok(Some(at)),
-        Err(direct) => {
-            skyward_sys::kmsg(&format!("{name} is not read where it lies: {direct:#}"))?;
-            // SELinux refuses the kernel the descriptors a recovery opens
-            // for a loop device; with the check relaxed the same file reads
-            // whole.
-            if let Err(e) = permit_loop_devices() {
-                skyward_sys::kmsg(&format!("SELinux was not made permissive: {e:#}"))?;
-            } else if open_bundle(&file, offset, length, &at).is_ok() {
-                return Ok(Some(at));
-            }
-            skyward_sys::kmsg(&format!("{name} is copied into the recovery's own memory"))?;
-            let copy = Path::new("/tmp").join(format!("{name}.img"));
-            copy_bundle(&file, offset, length, &copy).with_context(|| format!("copy {}", file.display()))?;
-            open_bundle(&copy, 0, length, &at)
-                .with_context(|| format!("open {} from its copy at {}", file.display(), copy.display()))
-                .map(|()| Some(at))
-                .map_err(|e| e.context(format!("reading it where it lies failed too: {direct:#}")))
-        }
-    }
-}
-
-/// Point a loop device at `length` bytes of `file` from `offset`, and mount
-/// what it holds at `at`.
-fn open_bundle(file: &Path, offset: u64, length: u64, at: &Path) -> Result<()> {
-    let device = skyward_block::loopdev::attach(file, offset, length)?;
-    skyward_block::mount::mount_ro(&device, at).map(|_| ())
-}
-
-/// Write `length` bytes of `file` from `offset` into `copy`.
-fn copy_bundle(file: &Path, offset: u64, length: u64, copy: &Path) -> Result<()> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut from = fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
-    from.seek(SeekFrom::Start(offset)).with_context(|| format!("seek {}", file.display()))?;
-    let mut to = fs::File::create(copy).with_context(|| format!("create {}", copy.display()))?;
-    std::io::copy(&mut from.take(length), &mut to).with_context(|| format!("copy {} into {}", file.display(), copy.display()))?;
-    to.sync_all().with_context(|| format!("sync {}", copy.display()))?;
-    Ok(())
-}
-
-/// Where the filesystem lies inside a bundle.
-fn image(file: &Path) -> Result<(u64, u64)> {
-    let f = fs::File::open(file).with_context(|| format!("open {}", file.display()))?;
-    let mut bundle = zip::ZipArchive::new(f).with_context(|| format!("read what is in {}", file.display()))?;
-    let entry = bundle.by_name(BUNDLE_IMAGE).with_context(|| format!("{} holds no {BUNDLE_IMAGE}", file.display()))?;
-    if entry.compression() != zip::CompressionMethod::Stored {
-        anyhow::bail!("{} keeps its {BUNDLE_IMAGE} packed, which cannot be opened where it lies", file.display());
-    }
-    let start = entry.data_start().with_context(|| format!("{BUNDLE_IMAGE} in {} says where it is not", file.display()))?;
-    Ok((start, entry.size()))
-}
-
-/// Give the phone's service directory the descriptions of the services in
-/// `wanted`, and the description files in `files`, which the phone keeps
-/// apart from the rest. The directory turns away a hardware service the
-/// running system does not describe, and a recovery starts up describing
-/// only the few services of its own. Only the descriptions that are needed
-/// are taken: the directory reads the whole of its description directory
-/// at once, and one file it cannot make sense of leaves it describing
-/// nothing.
-pub fn publish_descriptions(wanted: &[String], files: &[String]) -> Result<usize> {
+/// Tell the phone's service directory of the services in `wanted`, which
+/// the phone's own programs register and the recovery itself may serve.
+/// The directory turns away a hardware service the running system does
+/// not describe, and a recovery starts up describing only the few services
+/// of its own. The recovery writes one description of its own for them
+/// all: where a phone tells of a service differs from phone to phone, in a
+/// description of one program or in the one a whole partition shares, and
+/// the directory reads the whole of its description directory at once, so
+/// that one file it cannot make sense of leaves it describing nothing.
+pub fn publish_descriptions(wanted: &[String]) -> Result<()> {
     let into = Path::new(RECOVERY_DESCRIPTIONS);
     fs::create_dir_all(into).with_context(|| format!("make {}", into.display()))?;
     // Both directories read these as the users their init scripts name,
     // and what the recovery makes under its own umask is root's alone: the
-    // folder and each description are given the modes the system's own
-    // copies have.
+    // folder and the description are given the modes the system's own have.
     fs::set_permissions(into, std::os::unix::fs::PermissionsExt::from_mode(0o755))
         .with_context(|| format!("open {} to every user", into.display()))?;
-    let mut copied = 0;
-    let mut take = |from: &Path, text: &str| -> Result<()> {
-        let name = from.file_name().with_context(|| format!("{} names no file", from.display()))?;
-        let to = into.join(name);
-        fs::write(&to, as_framework(text)).with_context(|| format!("copy {}", from.display()))?;
-        fs::set_permissions(&to, std::os::unix::fs::PermissionsExt::from_mode(0o644))
-            .with_context(|| format!("let every user read {}", to.display()))?;
-        copied += 1;
-        Ok(())
-    };
-    for dir in DESCRIPTIONS {
-        let listing = match fs::read_dir(dir) {
-            Ok(listing) => listing,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e).with_context(|| format!("read {dir}")),
-        };
-        for entry in listing {
-            let from = entry.with_context(|| format!("read {dir}"))?.path();
-            if from.extension().is_none_or(|e| e != "xml") {
-                continue;
-            }
-            let text = fs::read_to_string(&from).with_context(|| format!("read {}", from.display()))?;
-            if wanted.iter().any(|w| describes(&text, w)) {
-                take(&from, &text)?;
-            }
+    let to = into.join(PHONE_DESCRIPTION);
+    // A service told of twice has the directory take none of what it
+    // reads, so what the descriptions the recovery ships with tell of
+    // already, as they do of the boot control on some phones, is left out.
+    let mut shipped = vec![PathBuf::from(RECOVERY_MANIFEST)];
+    for entry in fs::read_dir(into).with_context(|| format!("read {}", into.display()))? {
+        shipped.push(entry.with_context(|| format!("read {}", into.display()))?.path());
+    }
+    let mut told = Vec::new();
+    for path in shipped.iter().filter(|p| **p != to && p.extension().is_some_and(|e| e == "xml") && p.is_file()) {
+        let text = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        let services = skyward_programs::description::read(&text).with_context(|| format!("read {}", path.display()))?;
+        told.extend(services.iter().map(skyward_programs::description::Described::name));
+    }
+    let untold: Vec<String> = wanted.iter().filter(|name| !told.contains(name)).cloned().collect();
+    fs::write(&to, skyward_programs::description::offering(&untold)?).with_context(|| format!("write {}", to.display()))?;
+    fs::set_permissions(&to, std::os::unix::fs::PermissionsExt::from_mode(0o644)).with_context(|| format!("let every user read {}", to.display()))?;
+    let rewritten = say_framework(into)?;
+    // The directory reads the descriptions once and keeps to them, so one
+    // that read them before these were written has to start again to see
+    // these. One an earlier run of the recovery service had start again
+    // knows them already, and is left with what has registered with it
+    // since.
+    let binder = skyward_binder::driver::Binder::open()?;
+    // The first it does not know described settles that it starts again.
+    let mut unknown = false;
+    for name in wanted {
+        if !skyward_binder::service::declared(&binder, name).with_context(|| format!("ask the service directory whether it knows {name} described"))? {
+            unknown = true;
+            break;
         }
     }
-    for file in files {
-        let from = Path::new(file);
-        take(from, &fs::read_to_string(from).with_context(|| format!("read {file}"))?)?;
-    }
-    let rewritten = say_framework(into)?;
-    open_descriptions(into)?;
-    if copied > 0 || rewritten > 0 {
-        // The directory reads the descriptions once and keeps to them, so
-        // it has to start again to see these. It comes back knowing nothing
-        // of what had registered with it, and nothing registers again by
-        // itself, so init starts each of those services again, as the
-        // installed system's init does whenever its directory restarts.
+    if unknown || rewritten > 0 {
+        // It comes back knowing nothing of what had registered with it,
+        // and nothing registers again by itself, so init starts each of
+        // those services again, as the installed system's init does
+        // whenever its directory restarts.
         let registered = registered()?;
         let was = crate::services::running(DIRECTORY_PROGRAM);
         skyward_sys::set_prop("ctl.restart", DIRECTORY_SERVICE).context("have the service directory start again")?;
         answering_again(was)?;
         register_again(&registered)?;
     }
-    Ok(copied)
+    Ok(())
 }
 
 /// What has registered with the service directory, each with the init
@@ -706,29 +658,13 @@ fn register_again(registered: &[(String, String)]) -> Result<()> {
         skyward_sys::set_prop("ctl.start", service).with_context(|| format!("have init start {service} again"))?;
     }
     let binder = skyward_binder::driver::Binder::open()?;
-    let mut missing = Vec::new();
+    let until = Instant::now() + REGISTER_TIMEOUT;
     for (name, service) in registered {
-        let until = Instant::now() + REGISTER_TIMEOUT;
-        let mut came = false;
-        while Instant::now() < until {
-            if skyward_binder::service::find(&binder, name)?.is_some() {
-                came = true;
-                break;
-            }
+        while skyward_binder::service::find(&binder, name)?.is_none() {
+            ensure!(Instant::now() < until, "{name} has not registered again since init started {service} again");
             std::thread::sleep(Duration::from_millis(50));
         }
-        if came {
-            skyward_sys::kmsg(&format!("{name} registered again from {service}"))?;
-        } else {
-            missing.push(format!("{name} (from {service})"));
-        }
-    }
-    // A service the recovery does not need may keep away after the
-    // directory starts again, as a recovery's own health service does.
-    // The descriptions are published all the same, and the services this
-    // recovery does need are started next.
-    if !missing.is_empty() {
-        skyward_sys::kmsg(&format!("{} services did not register again: {}", missing.len(), missing.join(", ")))?;
+        skyward_sys::kmsg(&format!("{name} registered again from {service}"))?;
     }
     Ok(())
 }
@@ -761,15 +697,6 @@ fn say_framework(dir: &Path) -> Result<usize> {
     Ok(rewritten)
 }
 
-/// Whether a description is of the service registered under `name`, which
-/// reads as the interface and then the instance: the description names the
-/// two separately.
-fn describes(text: &str, name: &str) -> bool {
-    let Some((interface, instance)) = name.rsplit_once('/') else { return false };
-    let Some((package, interface)) = interface.rsplit_once('.') else { return false };
-    text.contains(package) && text.contains(&format!("{interface}/{instance}"))
-}
-
 /// Wait until the service directory is a new process and takes calls
 /// again. init is only asked to restart it, so for a moment the one that
 /// has not read the new descriptions is still the one answering.
@@ -786,18 +713,5 @@ fn answering_again(was: Option<u32>) -> Result<()> {
             anyhow::bail!("the service directory did not come back");
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_vendor_interface_version_is_read_from_the_vendor_s_property_file() {
-        assert_eq!(version_in("ro.vndk.version=33\n").as_deref(), Some("33"));
-        assert_eq!(version_in("ro.vndk.version = 33 \n").as_deref(), Some("33"));
-        assert_eq!(version_in("ro.vndk.version=\n"), None, "a version left empty names none");
-        assert_eq!(version_in("ro.other=33\n"), None);
     }
 }
