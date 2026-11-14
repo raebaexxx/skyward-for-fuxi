@@ -173,7 +173,13 @@ mod tests {
         assert_eq!(
             steps(&named_by_none).unwrap(),
             [
-                once("/vendor/bin/init.qti.qcv.sh", &[], &["/system/lib64", "/vendor/lib64"], None, &[]),
+                once(
+                    "/vendor/bin/init.qti.qcv.sh",
+                    &[],
+                    &["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"],
+                    None,
+                    &[],
+                ),
                 set("ro.boot.product.vendor.sku", "${ro.vendor.qti.soc_name}"),
             ],
             "the section's commands up to the one that names the build, and none after it"

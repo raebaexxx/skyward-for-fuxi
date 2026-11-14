@@ -77,7 +77,8 @@ const HARDWARE_DIRECTORY_READY: &str = "hwservicemanager.ready";
 /// the odm partition asks for that neither has. The directory for hardware
 /// services is the installed system's own program and runs on its
 /// libraries alone.
-const VENDOR_LIBRARIES: [&str; 2] = ["/system/lib64", "/vendor/lib64"];
+const VENDOR_LIBRARIES: [&str; 4] =
+    ["/system/lib64", "/vendor/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"];
 const ODM_LIBRARIES: [&str; 5] = ["/system/lib64", "/vendor/lib64", "/odm/lib64", "/mnt/system/system/lib64", "/mnt/system/system/lib64/bootstrap"];
 const SYSTEM_LIBRARIES: [&str; 3] = ["/mnt/system/system/lib64/bootstrap", "/mnt/system/system/lib64", "/mnt/system_ext/lib64"];
 
