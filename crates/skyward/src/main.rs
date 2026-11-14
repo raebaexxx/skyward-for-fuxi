@@ -129,6 +129,11 @@ enum Cmd {
         #[arg(long, default_value = "/skyward/device.toml")]
         config: String,
     },
+    /// Ask the key service for the key the data partition is built with, and
+    /// keep nothing: the request the recovery makes when it builds a
+    /// partition, tried on its own, with no partition written.
+    #[cfg(target_os = "android")]
+    Keygen,
     /// Give the data partition a new filesystem where it holds nothing, and
     /// throw away the key it was opened with: the system that starts next
     /// makes the key, as it does on its own first start.
@@ -253,14 +258,17 @@ enum Cmd {
 }
 
 fn main() -> Result<()> {
-    // init starts the recovery service by path with no arguments.
+    // init starts the recovery service by path with no arguments. A command
+    // given to the same path is a command: starting the service over a
+    // service already running leaves two of them holding the display, and
+    // the phone does not survive it.
     let started_as = std::env::args_os().next().unwrap_or_default();
     let name = Path::new(&started_as).file_name().unwrap_or_default();
-    if name == "recovery" {
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    if name == "recovery" && args.is_empty() {
         return recovery();
     }
     // Install scripts run the commands linked to this binary by their names.
-    let args: Vec<_> = std::env::args_os().skip(1).collect();
     if let Some(code) = skyward_install::commands::run(name, &args) {
         std::process::exit(code);
     }
@@ -346,6 +354,14 @@ fn main() -> Result<()> {
             } else {
                 println!("/sdcard already shows something else");
             }
+            Ok(())
+        }
+        #[cfg(target_os = "android")]
+        Cmd::Keygen => {
+            let binder = skyward_binder::driver::Binder::open()?;
+            let service = skyward_crypto::keymint::KeyMint::open(&binder)?;
+            let bytes = skyward_crypto::data::try_key(&service)?;
+            println!("the key service made a key of {bytes} bytes, and nothing was written");
             Ok(())
         }
         #[cfg(target_os = "android")]

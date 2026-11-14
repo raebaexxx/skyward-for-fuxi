@@ -155,6 +155,11 @@ jobs:
           it be looked at over an open data partition with `stage --force`,
           and any process can take it away again.
 
+          Version 1.9.6 makes a command given to the recovery's own path run
+          as a command rather than start a second recovery over the running
+          one. `keygen` asks the key service for the partition's key the way
+          the phone's storage manager does, and writes nothing.
+
           Android 17 data decryption with the screen lock, verified on crDroid
           17.0 up to 1.9.4. The phone's own partitions name its programs and
           keys, and fuxi keeps its WLAN vendor directory, VNDK fallback and
