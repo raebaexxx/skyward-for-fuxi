@@ -988,8 +988,30 @@ fn detach(services: Vec<Service>) -> Detach {
     Box::new(move || {
         let slot = skyward_vab::current_slot()?.context("not an A/B phone")?;
         let mounted = skyward_vab::mounted_partitions(slot)?;
-        let busy = services::pin(&services, &mounted)?;
-        skyward_vab::release_partitions(slot, &busy)
+        // Pinning keeps the programs the configuration names in memory.
+        // What cannot be read now is left to the filesystem, which is asked
+        // to take the mount off the tree when it is in use.
+        let busy = match services::pin(&services, &mounted) {
+            Ok(busy) => busy,
+            Err(e) => {
+                let _ = skyward_sys::kmsg(&format!("the programs were not kept in memory: {e:#}"));
+                Vec::new()
+            }
+        };
+        let released = skyward_vab::release_partitions(slot, &busy)?;
+        for at in &released.forced {
+            let _ = skyward_sys::kmsg(&format!("{} was in use, and came off the tree at once", at.display()));
+        }
+        for (at, why) in &released.devices {
+            let _ = skyward_sys::kmsg(&format!("{} is off the tree, and its device-mapper device stays: {why}", at.display()));
+        }
+        // A partition that would not come off either way is told of, and the
+        // install goes on: being in use is what the recovery makes of the
+        // phone's own programs, not a fault of the package.
+        for (at, why) in &released.kept {
+            let _ = skyward_sys::kmsg(&format!("{} stays where it is: {why}", at.display()));
+        }
+        Ok(())
     })
 }
 
@@ -2362,6 +2384,16 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                     // What the file page listed before /data opened is stale.
                     relist_after_open(&mut app)?;
                 }
+                decrypt::Ended::Rebuilt(Ok(())) => {
+                    skyward_sys::kmsg("the data partition is built afresh: its key is made and its filesystem too")?;
+                    // What was just built is opened the way any partition is.
+                    app.open_data();
+                    decryptor = Some(Decryptor::start(decrypt::Job::Open)?);
+                }
+                decrypt::Ended::Rebuilt(Err(why)) => {
+                    skyward_sys::kmsg(&format!("the data partition was not built: {why}"))?;
+                    app.data_failed(why);
+                }
                 decrypt::Ended::Opened(Err(why)) => {
                     skyward_sys::kmsg(&format!("the data partition stays closed: {why}"))?;
                     // The update the system asked for cannot be read, and
@@ -2656,6 +2688,13 @@ pub fn run(cfg: &DeviceConfig, programs: &[Service], font: &Path, mono: &Path, r
                     Effect::OpenData => {
                         ensure!(decryptor.is_none(), "the data partition is being opened already");
                         decryptor = Some(Decryptor::start(decrypt::Job::Open)?);
+                    }
+                    // The page asks for the partition to be built where it
+                    // holds nothing: the key is made, the filesystem too, and
+                    // what was built is opened as any other partition is.
+                    Effect::RebuildData => {
+                        ensure!(decryptor.is_none(), "the data partition is being worked on already");
+                        decryptor = Some(Decryptor::start(decrypt::Job::Rebuild)?);
                     }
                     Effect::Unlock { user, code } => {
                         ensure!(decryptor.is_none(), "the data partition is being opened already");

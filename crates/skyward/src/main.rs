@@ -28,6 +28,8 @@ mod partwork;
 #[cfg(target_os = "android")]
 mod pty;
 #[cfg(target_os = "android")]
+mod rebuild;
+#[cfg(target_os = "android")]
 mod readings;
 #[cfg(target_os = "android")]
 mod relabel;
@@ -124,6 +126,21 @@ enum Cmd {
     Services {
         #[arg(long, default_value = "/skyward/device.toml")]
         config: String,
+    },
+    /// Have the secure world make a key, and print what it made and how
+    /// long it is, without writing anything: what the recovery asks for when
+    /// it builds the data partition, tried on its own.
+    #[cfg(target_os = "android")]
+    Keygen,
+    /// Build the data partition afresh where it holds nothing: make the key
+    /// it is opened with, as the system does on its first start, and give it
+    /// a filesystem.
+    #[cfg(target_os = "android")]
+    RebuildData {
+        /// Throw away what the partition holds, if it holds anything, and
+        /// the key it was opened with: a rebuild in earnest.
+        #[arg(long)]
+        force: bool,
     },
     /// Print what the installed system's partitions say to do to use the
     /// phone's keys, in order, and do none of it. A build of the hardware
@@ -308,6 +325,23 @@ fn main() -> Result<()> {
             loop {
                 std::thread::park();
             }
+        }
+        #[cfg(target_os = "android")]
+        Cmd::Keygen => {
+            let binder = skyward_binder::driver::Binder::open()?;
+            let service = skyward_crypto::keymint::KeyMint::open(&binder)?;
+            let blob = service.generate_key()?;
+            println!("the secure world made a key of {} bytes", blob.len());
+            println!("  {}", blob.iter().take(16).map(|b| format!("{b:02x}")).collect::<String>());
+            Ok(())
+        }
+        #[cfg(target_os = "android")]
+        Cmd::RebuildData { force } => {
+            let binder = skyward_binder::driver::Binder::open()?;
+            let service = skyward_crypto::keymint::KeyMint::open(&binder)?;
+            rebuild::data(&service, force)?;
+            println!("the data partition is built afresh");
+            Ok(())
         }
         #[cfg(target_os = "android")]
         Cmd::Keys => {
