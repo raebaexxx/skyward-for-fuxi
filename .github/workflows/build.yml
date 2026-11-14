@@ -160,6 +160,10 @@ jobs:
           one. `keygen` asks the key service for the partition's key the way
           the phone's storage manager does, and writes nothing.
 
+          Version 1.9.7 corrects that request. Algorithm is a single enum,
+          where 1.9.6 sent it as a repeated one, and the key service refused
+          it with -4.
+
           Android 17 data decryption with the screen lock, verified on crDroid
           17.0 up to 1.9.4. The phone's own partitions name its programs and
           keys, and fuxi keeps its WLAN vendor directory, VNDK fallback and
