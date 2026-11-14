@@ -43,11 +43,15 @@ one phone: the **Xiaomi 13** (codename `fuxi`), and is maintained by
 
 | Device | Codename | System version | What was verified |
 | --- | --- | --- | --- |
-| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | decryption, storage, WLAN, MTP, adb, updates, install, backup |
-| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | decryption and the owner's files; WLAN still to come |
+| Xiaomi 13 | `fuxi` | crDroid 17.0 (Android 17, 2026-11-14 build) | to be verified on this build; the 1.7 build ran decryption, storage, WLAN, MTP, adb, updates, install, backup |
+| Xiaomi 13 | `fuxi` | NexusHyper 4.1.2 (Android 17 system, Android 13 vendor) | to be verified on 1.9; the 1.7 build decrypted and opened the owner's files |
 | Xiaomi 13 | `fuxi` | ColorOS 17 port (Android 17 system, Android 13 vendor) | not yet run |
 
-Decryption was verified on this phone with a PIN screen lock: the data
+The 1.9 build merges upstream 0.3.0, which reads the phone's programs and keys
+from its own partitions. The rows above keep the 1.7 results until this build
+has been checked on the phone.
+
+Decryption was verified on the 1.7 build with a PIN screen lock: the data
 partition is decrypted, the owner's credential-based files open, and internal
 storage is readable.
 
@@ -64,7 +68,7 @@ up on that vendor.
 
 ## What has been tested
 
-Verified on the phone with crDroid 17.0: PIN decryption, internal storage,
+Verified on the phone with crDroid 17.0 on the 1.7 build: PIN decryption, internal storage,
 WLAN and the kept network joined by itself, MTP, adb, installing a full system
 update package from internal storage and keeping Skyward after it, installing a
 GApps zip with its own script, wireless transfer to a browser, the page for a

@@ -140,7 +140,12 @@ jobs:
           cat > notes.md <<NOTES
           # Skyward for fuxi · Xiaomi 13
 
-          Android 17 data decryption with the screen lock, verified on crDroid 17.0.
+          Version 1.9 merges upstream 0.3.0: the phone's own partitions now name
+          its programs and keys, and fuxi keeps its WLAN vendor directory, VNDK
+          fallback and English/Russian pages.
+
+          Android 17 data decryption with the screen lock. This is the first
+          0.3.0 build; verify it on the phone before relying on it.
 
           ## Flash
 
