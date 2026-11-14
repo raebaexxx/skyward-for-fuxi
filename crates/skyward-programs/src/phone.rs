@@ -371,6 +371,16 @@ impl Phone {
             if folder.join(&main).is_file() {
                 files.push(main);
             }
+            // A port may keep the whole phone's description in one file
+            // named after the build of its hardware, while the property
+            // that names that build is one a recovery does not read. Every
+            // top-level manifest is read as well, so the services a port
+            // describes are found whether or not that property is there.
+            for file in files_in(&folder, "xml")? {
+                if file.starts_with("manifest") && !files.contains(&file) {
+                    files.push(file);
+                }
+            }
             files.extend(files_in(&folder.join("manifest"), "xml")?.into_iter().map(|file| format!("manifest/{file}")));
             for file in files {
                 let named = format!("/{name}/{DESCRIPTIONS}/{file}");
